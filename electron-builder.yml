@@ -1,0 +1,59 @@
+appId: com.kanjiyamamoto66.mokkan
+productName: mokkan
+copyright: Copyright © 2026 kanjiyamamoto66
+directories:
+  buildResources: build
+  output: dist
+# 同梱するのはビルド結果（out/）と、裏方が使うアイコンだけ。
+# 画面のパッケージは out/renderer にまとめて出力済みなので、package.json の dependencies には
+# 裏方が実行時に require するもの（out/main/index.js の require を参照）だけを置く
+files:
+  - out/**
+  - resources/**
+  - package.json
+asarUnpack:
+  - resources/**
+# mokkan のライセンスと、画面・preload にまとめたパッケージのライセンスの一覧を、インストール先の licenses/ に置く
+# （Electron と Chromium のものは、electron-builder がインストール先に置く）
+extraFiles:
+  - from: LICENSE
+    to: licenses/mokkan-LICENSE.txt
+  - from: out/renderer/THIRD_PARTY_LICENSES.md
+    to: licenses/renderer-THIRD_PARTY_LICENSES.md
+  - from: out/preload/THIRD_PARTY_LICENSES.md
+    to: licenses/preload-THIRD_PARTY_LICENSES.md
+win:
+  executableName: mokkan
+  target:
+    - target: nsis
+      arch: x64
+# ワンクリック形式：ユーザーごとに %LOCALAPPDATA%\Programs\mokkan へ入れる（管理者権限は不要）。
+# 設定（%APPDATA%\mokkan）とタスクのデータ（tasks/）はアンインストールしても消さない
+nsis:
+  oneClick: true
+  perMachine: false
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
+  installerLanguages:
+    - ja_JP
+  language: '1041'
+# 今は Windows 専用。mac と Linux のインストーラーは作らない
+npmRebuild: false
+# 配布するアプリで使わない機能を切っておく（Electron の Fuses）
+# - 環境変数（ELECTRON_RUN_AS_NODE・NODE_OPTIONS）や --inspect で、アプリを素の Node として動かしたり中を書き換えたりさせない
+# - アプリのコードは app.asar からだけ読み、その中身が改ざんされていないかを確かめる
+# grantFileProtocolExtraPrivileges は既定のまま（画面を file:// から ES モジュールで読んでいるため）
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  onlyLoadAppFromAsar: true
+  enableEmbeddedAsarIntegrityValidation: true
+  enableCookieEncryption: true
+# 自動更新はまだ使わない。リリースは .github/workflows/release.yml が GitHub Release に置く
+publish: null

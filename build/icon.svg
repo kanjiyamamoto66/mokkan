@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- mokkan（木簡）の仮アイコン。紺の地に、紐の穴のある木の札と、チェックの付いた行 -->
+  <rect x="24" y="24" width="464" height="464" rx="104" fill="#23324a"/>
+  <rect x="164" y="56" width="184" height="400" rx="22" fill="#e9c98f" stroke="#c49a5c" stroke-width="8"/>
+  <path d="M190 150 V420 M322 150 V420" stroke="#d9b67a" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="256" cy="104" r="17" fill="#23324a"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M196 186 l16 16 l28 -32" stroke="#c8442f" stroke-width="16"/>
+    <path d="M258 188 H318" stroke="#2b2b2b" stroke-width="16"/>
+    <path d="M196 272 l16 16 l28 -32" stroke="#c8442f" stroke-width="16"/>
+    <path d="M258 274 H318" stroke="#2b2b2b" stroke-width="16"/>
+    <path d="M200 362 H318" stroke="#2b2b2b" stroke-width="16"/>
+  </g>
+</svg>

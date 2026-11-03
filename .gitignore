@@ -1,0 +1,36 @@
+# 依存パッケージ
+node_modules/
+
+# ビルド成果物
+dist/
+out/
+release/
+.vite/
+*.tsbuildinfo
+.eslintcache
+
+# テスト
+coverage/
+
+# ログ
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 環境変数・個人設定
+.env
+.env.*
+!.env.example
+.claude/settings.local.json
+
+# 動作確認用のタスクデータ
+sandbox/
+
+# OS・エディタ
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+*.swp

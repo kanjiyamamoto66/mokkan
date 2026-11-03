@@ -1,0 +1,2029 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --border: #e3e3df;
+  --text: #1f1f1d;
+  --muted: #6b6b66;
+  --accent: #2f6fdf;
+  --accent-text: #ffffff;
+  --chip-on: #dbe6fb;
+  /* 赤は「急ぐ・注意」：優先度の高・期限切れ・警告と削除（色の意味の決まりは docs/spec.md「色の意味」） */
+  --danger: #c4372b;
+  --warn-bg: #fff6e0;
+  --warn-border: #f0d48a;
+  /* 状態は青の塗り方で表す（未着手＝枠だけ、作業中＝濃い塗り、待ち＝淡い斜線、完了＝薄い灰色） */
+  --status-todo: #2f6fdf;
+  --status-doing: #1f4fa8;
+  --status-doing-text: #ffffff;
+  --status-waiting: #9dbcf2;
+  --status-waiting-bg: #edf3fd;
+  --status-waiting-fill: repeating-linear-gradient(
+    -45deg,
+    var(--status-waiting-bg) 0 5px,
+    var(--status-waiting) 5px 7px
+  );
+  --status-done: #e4e4e0;
+  --status-done-text: #8a8a84;
+  /* 優先度は小さな丸（高＝赤、中＝黄、低＝灰） */
+  --priority-1: #d63a2c;
+  --priority-1-text: #ffffff;
+  --priority-2: #f0b90b;
+  --priority-2-text: #3d2f00;
+  --priority-3: #a3a39d;
+  --priority-3-text: #ffffff;
+  /* 選んでいるチケットの枠。アクセント色（青）は状態の塗りと見分けにくいので、文字の色にする */
+  --selected-ring: var(--text);
+  font-family:
+    'Segoe UI',
+    'Yu Gothic UI',
+    'Meiryo',
+    system-ui,
+    -apple-system,
+    'Hiragino Sans',
+    sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1b1d;
+    --surface: #242427;
+    --border: #36363a;
+    --text: #e8e8e6;
+    --muted: #9a9a95;
+    --accent: #5b8ff0;
+    --chip-on: #2c3c5c;
+    --danger: #f07167;
+    --warn-bg: #3a3220;
+    --warn-border: #6b5a2b;
+    --status-todo: #6c9cf2;
+    --status-doing: #3b6fd8;
+    --status-doing-text: #ffffff;
+    --status-waiting: #45679f;
+    --status-waiting-bg: #23304a;
+    --status-done: #48484d;
+    --status-done-text: #8a8a86;
+    --priority-1: #f07167;
+    --priority-1-text: #2a0f0c;
+    --priority-2: #e5b53a;
+    --priority-2-text: #2a2000;
+    --priority-3: #6e6e69;
+    --priority-3-text: #f0f0ee;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 4px 10px;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+button.ghost {
+  background: transparent;
+}
+
+button.link {
+  border: none;
+  background: none;
+  padding: 0 4px;
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+kbd {
+  font-family: inherit;
+  font-size: 11px;
+  opacity: 0.8;
+  margin-left: 4px;
+}
+
+code {
+  font-family: Consolas, 'BIZ UDGothic', monospace;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.loading {
+  padding: 24px;
+  color: var(--muted);
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.brand {
+  margin: 0 8px 0 0;
+  font-size: 18px;
+}
+
+/* ---- 画面の上の検索欄 ---- */
+
+.search-box {
+  position: relative;
+  flex: 0 1 260px;
+  min-width: 140px;
+}
+
+.search-box > input {
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.search-box > input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.search-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 25;
+  width: min(560px, calc(100vw - 32px));
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 6px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.2);
+}
+
+.search-panel .search-option {
+  padding: 2px 12px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.search-panel ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.search-panel li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.search-panel li.active {
+  background: var(--chip-on);
+}
+
+.search-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.search-kind {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.search-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-title.untitled {
+  color: var(--muted);
+}
+
+.search-snippet {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-empty {
+  margin: 6px 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.folder {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 16px;
+  color: var(--danger);
+  border-bottom: 1px solid var(--border);
+}
+
+/* 確かめてほしいことがあるボタン（設定）に付ける点 */
+button.has-dot {
+  position: relative;
+}
+
+button.has-dot::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+
+/* 画面の上に出す、ひとことの案内の帯（起動時の名前の付け足し・設定への誘導など） */
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--chip-on);
+  font-size: 13px;
+}
+
+.banner .actions {
+  display: flex;
+  gap: 6px;
+}
+
+.main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px 24px;
+}
+
+.warnings {
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.warnings summary {
+  cursor: pointer;
+}
+
+.warnings ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.warnings .message {
+  margin-right: 4px;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+}
+
+.filters .group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.filters .label {
+  color: var(--muted);
+  font-size: 12px;
+  margin-right: 2px;
+}
+
+.filters .sort-key {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 4px;
+}
+
+.chip {
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+}
+
+.chip.on {
+  background: var(--chip-on);
+  border-color: var(--accent);
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tickets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.tickets li + li {
+  border-top: 1px solid var(--border);
+}
+
+.ticket {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border: none;
+  border-radius: 0;
+  padding: 10px 12px;
+  text-align: left;
+  background: transparent;
+}
+
+.ticket:hover {
+  background: var(--bg);
+}
+
+.priority {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  color: #fff;
+}
+
+/* 優先度の丸（一覧の文字入りの丸と、小さな丸）。黄の上の白い文字は読みにくいので、文字の色も優先度ごとに変える */
+.priority.p1,
+.priority-dot.p1 {
+  background: var(--priority-1);
+  color: var(--priority-1-text);
+}
+
+.priority.p2,
+.priority-dot.p2 {
+  background: var(--priority-2);
+  color: var(--priority-2-text);
+}
+
+.priority.p3,
+.priority-dot.p3 {
+  background: var(--priority-3);
+  color: var(--priority-3-text);
+}
+
+.priority-dot {
+  display: inline-block;
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  vertical-align: 1px;
+}
+
+.chip .priority-dot,
+.properties .priority-dot {
+  margin-right: 4px;
+}
+
+.priority-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.priority-field select {
+  flex: 1;
+}
+
+.mk-name .priority-dot {
+  margin-right: 2px;
+}
+
+.calendar .priority-dot {
+  margin-right: 3px;
+  box-shadow: 0 0 0 1px var(--surface);
+}
+
+.ticket .body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title.untitled {
+  color: var(--muted);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.status.doing {
+  color: var(--accent);
+}
+
+.tag::before {
+  content: '#';
+}
+
+.dates {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.due.overdue {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* ---- ノートの一覧 ---- */
+
+.note-date {
+  flex: none;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.from-note.all-done {
+  color: var(--muted);
+}
+
+.from-note:not(.all-done) {
+  color: var(--accent);
+}
+
+.empty {
+  color: var(--muted);
+  padding: 24px 0;
+  text-align: center;
+}
+
+.footer {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.setup {
+  max-width: 560px;
+  margin: 64px auto;
+  padding: 0 16px;
+}
+
+.setup .actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ---- 一覧と編集画面の2列 ---- */
+
+.panes {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.panes .main {
+  flex: 1;
+  min-width: 0;
+}
+
+.panes.with-editor .main {
+  flex: 0 0 380px;
+  border-right: 1px solid var(--border);
+}
+
+/* 編集画面を開いているときは、一覧を詰めて表示する */
+.panes.with-editor .dates {
+  display: none;
+}
+
+.ticket.selected {
+  background: var(--chip-on);
+}
+
+.editor {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  background: var(--surface);
+}
+
+.editor-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 1;
+}
+
+.editor-header .file {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.save-state {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.notice {
+  margin: 12px 16px 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--warn-border);
+  background: var(--warn-bg);
+}
+
+.notice p {
+  margin: 0 0 8px;
+}
+
+.notice .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.notice.error {
+  color: var(--danger);
+}
+
+/* ---- プロパティフォーム ---- */
+
+.properties {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.properties fieldset {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px 12px;
+}
+
+.properties label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.properties .field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.properties label.wide,
+.properties .field.wide {
+  grid-column: span 2;
+}
+
+/* ---- タグの入力欄 ---- */
+
+.tag-input {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 2px 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: text;
+}
+
+.tag-input:focus-within {
+  border-color: var(--accent);
+}
+
+.properties .tag-input input {
+  flex: 1;
+  min-width: 80px;
+  border: none;
+  background: transparent;
+  padding: 2px;
+  outline: none;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 2px 0 8px;
+  border-radius: 999px;
+  background: var(--chip-on);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.tag-chip .remove {
+  border: none;
+  background: transparent;
+  padding: 0 4px;
+  line-height: 1.4;
+  color: var(--muted);
+  border-radius: 999px;
+}
+
+.tag-chip .remove:hover {
+  color: var(--danger);
+}
+
+.tag-suggestions {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 5;
+  min-width: 160px;
+  max-width: 100%;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.12);
+  font-size: 13px;
+  color: var(--text);
+}
+
+.tag-suggestions li {
+  padding: 3px 10px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-suggestions li:hover,
+.tag-suggestions li.active {
+  background: var(--chip-on);
+}
+
+.properties input,
+.properties select {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  min-width: 0;
+}
+
+.properties .hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+
+.properties .hint.warn {
+  color: var(--danger);
+}
+
+.meta-line {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.children {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.children .label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.children ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.children li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.children .due,
+.children .status {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---- ノートとチケットの行き来 ---- */
+
+.from-note-add {
+  margin-top: 6px;
+}
+
+.from-note-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.from-note-form input {
+  flex: 1;
+  min-width: 200px;
+}
+
+.from-note-form small {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.source-note {
+  display: flex;
+  gap: 6px;
+}
+
+.source-note select {
+  flex: 1;
+  min-width: 0;
+}
+
+.editor-header .back {
+  flex: none;
+}
+
+/* 本文の中の ID（Ctrl+クリックで開く）と、その横に薄く出すタイトル（画面だけで、本文には書かない） */
+.id-link {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  color: var(--accent);
+}
+
+.id-link.unknown {
+  color: inherit;
+  text-decoration-color: var(--danger);
+}
+
+/* 他のチケットやノートへの md のリンク（リンク先の ID で開く） */
+.body-editor .ProseMirror a .id-link.file-link,
+.id-link.file-link {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* 本文で [[ と打ったときのリンクの候補 */
+.link-suggest {
+  position: fixed;
+  z-index: 30;
+  min-width: 260px;
+  max-width: 420px;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+  font-size: 13px;
+}
+
+.link-suggest li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.link-suggest li.active,
+.link-suggest li:hover {
+  background: var(--chip-on);
+}
+
+.link-suggest .kind {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.link-suggest .title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-suggest .empty-item {
+  color: var(--muted);
+  cursor: default;
+}
+
+.id-title {
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  color: var(--muted);
+  background: var(--bg);
+  user-select: none;
+}
+
+.id-title::before {
+  content: '「';
+}
+
+.id-title::after {
+  content: '」';
+}
+
+/* ---- 本文エディタのツールバー ---- */
+
+/* 長い本文をスクロールしても使えるよう、編集画面の見出し（.editor-header、高さ48px）の下に留める */
+.editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  position: sticky;
+  top: 48px;
+  z-index: 1;
+}
+
+.editor-toolbar .tool {
+  min-width: 30px;
+  padding: 2px 8px;
+  font-size: 12px;
+  background: transparent;
+  border-color: transparent;
+}
+
+.editor-toolbar .tool:hover:not(:disabled) {
+  border-color: var(--border);
+}
+
+.editor-toolbar .tool.on {
+  background: var(--chip-on);
+  border-color: var(--accent);
+}
+
+.editor-toolbar .tool.strong {
+  font-weight: 700;
+}
+
+.editor-toolbar .tool.strike {
+  text-decoration: line-through;
+}
+
+.editor-toolbar .tool.emphasis {
+  font-style: italic;
+  font-family: Georgia, serif;
+}
+
+.editor-toolbar .tool.code {
+  font-family: Consolas, 'BIZ UDGothic', monospace;
+}
+
+/* まとまりごとに並べ、狭い幅ではまとまりの単位で折り返す */
+.editor-toolbar .tool-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}
+
+.editor-toolbar .tool-select {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 4px;
+}
+
+.editor-toolbar .link-form {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.editor-toolbar .link-form input {
+  flex: 1;
+  min-width: 220px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+
+.editor-toolbar .link-form small {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ---- 本文エディタ（Milkdown / ProseMirror） ---- */
+
+.body-editor {
+  flex: 1;
+  padding: 8px 24px 48px;
+}
+
+.body-editor .ProseMirror {
+  outline: none;
+  min-height: 200px;
+  line-height: 1.7;
+}
+
+.body-editor .ProseMirror h1 {
+  font-size: 22px;
+  margin: 12px 0 8px;
+}
+
+.body-editor .ProseMirror h1:empty::before,
+.body-editor .ProseMirror h1:has(> br:only-child)::before {
+  content: 'タイトル';
+  color: var(--muted);
+  pointer-events: none;
+  position: absolute;
+}
+
+.body-editor .ProseMirror h2 {
+  font-size: 17px;
+  margin: 16px 0 6px;
+}
+
+.body-editor .ProseMirror h3 {
+  font-size: 15px;
+  margin: 12px 0 4px;
+}
+
+.body-editor .ProseMirror p {
+  margin: 6px 0;
+}
+
+.body-editor .ProseMirror ul,
+.body-editor .ProseMirror ol {
+  padding-left: 24px;
+  margin: 6px 0;
+}
+
+.body-editor .ProseMirror li > p {
+  margin: 2px 0;
+}
+
+.body-editor .ProseMirror li[data-item-type='task'] {
+  list-style: none;
+  position: relative;
+}
+
+.body-editor .ProseMirror li[data-item-type='task']::before {
+  content: '☐';
+  position: absolute;
+  left: -22px;
+  top: 0;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.body-editor .ProseMirror li[data-item-type='task'][data-checked='true']::before {
+  content: '☑';
+  color: var(--accent);
+}
+
+.body-editor .ProseMirror li[data-item-type='task'][data-checked='true'] > p {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.body-editor .ProseMirror blockquote {
+  margin: 8px 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+
+.body-editor .ProseMirror pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  overflow-x: auto;
+}
+
+.body-editor .ProseMirror code {
+  font-family: Consolas, 'BIZ UDGothic', monospace;
+}
+
+.body-editor .ProseMirror pre code {
+  border: none;
+  padding: 0;
+  background: none;
+}
+
+.body-editor .ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 16px 0;
+}
+
+.body-editor .ProseMirror table {
+  border-collapse: collapse;
+  margin: 8px 0;
+}
+
+.body-editor .ProseMirror th,
+.body-editor .ProseMirror td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+}
+
+/* カーソルのあるセルと、その行・列（画面だけの飾り） */
+.body-editor .ProseMirror tr.mk-current-row > *,
+.body-editor .ProseMirror .mk-current-col {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.body-editor .ProseMirror .mk-current-cell {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* 複数のセルを選んだとき（prosemirror-tables が .selectedCell を付ける） */
+.body-editor .ProseMirror .selectedCell {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.body-editor .ProseMirror .selectedCell *::selection {
+  background: transparent;
+}
+
+.body-editor .ProseMirror a {
+  color: var(--accent);
+}
+
+.notice.info {
+  border-color: var(--border);
+  background: var(--bg);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.notice.info p {
+  margin: 0;
+}
+
+/* ---- 表示の切り替え（一覧・カレンダー・ガント） ---- */
+
+.views {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.views .view {
+  border: none;
+  background: transparent;
+  padding: 3px 12px;
+  border-radius: 6px;
+}
+
+.views .view.on {
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--border);
+  font-weight: 600;
+}
+
+/* カレンダーとガントは横幅を使うので、編集画面を右に固定幅で出す */
+.panes.view-calendar .main,
+.panes.view-gantt .main {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panes.with-editor.view-calendar .main,
+.panes.with-editor.view-gantt .main {
+  flex: 1;
+  border-right: 1px solid var(--border);
+}
+
+.panes.view-calendar .editor,
+.panes.view-gantt .editor {
+  flex: 0 0 440px;
+}
+
+/* ---- カレンダー ---- */
+
+.calendar {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 予定の塗り方＝状態（ガントの棒と同じ）。状態がない（読めない）ものは未着手と同じにする */
+.calendar .mk-event {
+  cursor: pointer;
+  background: var(--surface);
+  border: 1px solid var(--status-todo);
+  color: var(--text);
+  --fc-classic-event-contrast: var(--text);
+}
+
+.calendar .mk-event.mk-todo {
+  border-width: 2px;
+}
+
+.calendar .mk-event.mk-doing {
+  background: var(--status-doing);
+  border-color: var(--status-doing);
+  color: var(--status-doing-text);
+  --fc-classic-event-contrast: var(--status-doing-text);
+}
+
+.calendar .mk-event.mk-waiting {
+  background: var(--status-waiting-fill);
+  border-color: var(--status-waiting);
+}
+
+.calendar .mk-event.mk-done {
+  background: var(--status-done);
+  border-color: var(--status-done);
+  color: var(--status-done-text);
+  text-decoration: line-through;
+  --fc-classic-event-contrast: var(--status-done-text);
+}
+
+/* 期限切れは赤い枠と「!」。塗りは状態のまま */
+.calendar .mk-event.mk-overdue {
+  border: 2px solid var(--danger);
+}
+
+.calendar .mk-event.mk-selected {
+  outline: 2px solid var(--selected-ring);
+  outline-offset: 1px;
+}
+
+.overdue-mark {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-right: 3px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+  vertical-align: 1px;
+}
+
+/* ---- 凡例（カレンダーとガントの「?」） ---- */
+
+.legend {
+  position: relative;
+}
+
+/* カレンダーでは、見出しの真ん中（FullCalendar のツールバーの空いているところ）に置く */
+.calendar > .legend {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+}
+
+.gantt-toolbar .legend {
+  margin-left: auto;
+}
+
+.legend-toggle {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.legend-toggle.on {
+  background: var(--chip-on);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.legend-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  z-index: 10;
+  width: 300px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+  font-size: 12px;
+}
+
+.calendar > .legend .legend-panel {
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.gantt-toolbar .legend-panel {
+  right: 0;
+}
+
+.legend-panel dl {
+  margin: 0;
+}
+
+.legend-panel dt {
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+.legend-panel dt:first-child {
+  margin-top: 0;
+}
+
+.legend-panel dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin: 4px 0 0;
+}
+
+.legend-panel small {
+  color: var(--muted);
+}
+
+.legend-sample {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.status-sample {
+  padding: 1px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--status-todo);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.status-sample.todo {
+  border-width: 2px;
+}
+
+.status-sample.doing {
+  background: var(--status-doing);
+  border-color: var(--status-doing);
+  color: var(--status-doing-text);
+}
+
+.status-sample.waiting {
+  background: var(--status-waiting-fill);
+  border-color: var(--status-waiting);
+}
+
+.status-sample.done {
+  background: var(--status-done);
+  border-color: var(--status-done);
+  color: var(--status-done-text);
+  text-decoration: line-through;
+}
+
+.status-sample.overdue {
+  border: 2px solid var(--danger);
+}
+
+.status-sample.selected {
+  outline: 2px solid var(--selected-ring);
+  outline-offset: 1px;
+}
+
+/* ---- ガントチャート ---- */
+
+.gantt-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gantt-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.gantt-toolbar .label {
+  color: var(--muted);
+  font-size: 12px;
+  margin-right: 2px;
+}
+
+.mk-gantt {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* SVAR のテーマの div は高さを持たないので、ガントが中身の高さまで伸びて枠で切られてしまう
+   （最後の行が横スクロールバーの下に隠れ、行が多いと縦にスクロールできない）。枠の高さを渡す */
+.mk-gantt .wx-theme {
+  height: 100%;
+}
+
+.mk-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 100%;
+  cursor: pointer;
+}
+
+.mk-name.group .mk-title {
+  font-weight: 600;
+}
+
+.mk-name.faded {
+  opacity: 0.45;
+}
+
+/* 完了した行は、名前の列も棒と同じく灰色＋取り消し線にする */
+.mk-name.done .mk-title {
+  color: var(--status-done-text);
+  text-decoration: line-through;
+}
+
+.mk-name.done .priority-dot {
+  opacity: 0.4;
+}
+
+.mk-toggle {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.mk-toggle-space {
+  flex: none;
+  width: 18px;
+}
+
+.mk-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mk-title.untitled {
+  color: var(--muted);
+}
+
+.mk-status {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.mk-status.doing {
+  color: var(--accent);
+}
+
+.mk-warning {
+  flex: none;
+  color: var(--danger);
+}
+
+.mk-span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* FullCalendar の色をアプリの色に合わせる（ダークモードは data-color-scheme で切り替わる。テーマの指定より優先させる） */
+.calendar[data-color-scheme] {
+  --fc-classic-background: var(--surface);
+  --fc-classic-foreground: var(--text);
+  --fc-classic-muted-foreground: var(--muted);
+  --fc-classic-border: var(--border);
+  --fc-classic-primary: var(--accent);
+  --fc-classic-button: var(--surface);
+  --fc-classic-button-border: var(--border);
+  --fc-classic-button-strong: var(--chip-on);
+  --fc-classic-button-strong-border: var(--accent);
+  --fc-classic-button-foreground: var(--text);
+  --fc-classic-event: var(--status-todo);
+}
+
+/* ガントの棒の塗り方＝状態（カレンダーの予定と同じ）。--bar-* は GanttView が行ごとに入れる
+   （SVAR の .wx-task:not(.wx-split).wx-xxx より強くするため、.wx-bar を重ねている） */
+.mk-gantt .wx-bar.wx-bar:not(.wx-milestone),
+.mk-gantt .wx-bar.wx-milestone > .wx-content.wx-content {
+  background: var(--bar-bg, var(--border));
+  border: var(--bar-border-width, 1px) solid var(--bar-border, transparent);
+  color: var(--bar-fg, var(--text));
+  text-decoration: var(--bar-decoration, none);
+  box-shadow: 0 0 0 2px var(--bar-ring, transparent);
+}
+
+/* タグごとの見出しのまとめ棒に使う、タグの色（--tag-h は GanttView が入れる） */
+.mk-gantt .wx-bar {
+  --tag-bar: hsl(var(--tag-h, 0) 58% 80%);
+}
+
+@media (prefers-color-scheme: dark) {
+  .mk-gantt .wx-bar {
+    --tag-bar: hsl(var(--tag-h, 0) 30% 36%);
+  }
+}
+
+/* まとめ棒（子のある親）は、両端を下に尖らせて普通の棒と形で見分ける */
+.mk-gantt .wx-bar.wx-bar.wx-summary {
+  clip-path: polygon(0 0, 100% 0, 100% 100%, calc(100% - 7px) 78%, 7px 78%, 0 100%);
+  box-shadow: none;
+}
+
+.mk-gantt .wx-bar.wx-summary > .wx-content.wx-content {
+  line-height: 20px;
+}
+
+.mk-gantt .mk-today {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* ---- 設定の画面 ---- */
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 0.35);
+}
+
+.dialog {
+  width: min(440px, calc(100vw - 32px));
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.25);
+}
+
+.dialog h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.dialog-note {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.dialog-field input {
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.dialog-error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* ---- AI でタスクを起こす ---- */
+
+.dialog.ai-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+.ai-candidates {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-candidates li {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  opacity: 0.6;
+}
+
+.ai-candidates li.chosen {
+  opacity: 1;
+  border-color: var(--accent);
+}
+
+.ai-fields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ai-fields input {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+
+.ai-fields .ai-title {
+  font-size: 14px;
+}
+
+.ai-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ai-row label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ai-evidence {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.ai-doubt {
+  font-size: 11px;
+  color: var(--danger);
+}
+
+.dialog-section {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.dialog-section h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.rule-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rule-files .check {
+  gap: 8px;
+  color: var(--text);
+}
+
+.rule-state {
+  color: var(--muted);
+}
+
+.rule-state.different,
+.rule-state.missing {
+  color: var(--accent);
+}
+
+/* ---- 繰り返しの指定 ---- */
+
+.repeat-input {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.repeat-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.repeat-weekdays {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.repeat-weekdays .chip {
+  padding: 1px 7px;
+}
+
+.repeat-parts {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text);
+}
+
+.properties .repeat-number {
+  width: 64px;
+}
+
+.repeat-summary {
+  flex: 1;
+  min-width: 120px;
+  color: var(--text);
+}
+
+.repeat-summary.warn {
+  color: var(--danger);
+}
+
+.repeat-raw-toggle {
+  font-size: 12px;
+}
+
+.repeat-raw-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.properties .repeat-raw {
+  width: 150px;
+  font-family: Consolas, 'BIZ UDGothic', monospace;
+  font-size: 12px;
+}
+
+/* カレンダーの予定の名前の前に出す、親のタイトル */
+.calendar .mk-parent {
+  font-size: 0.85em;
+  font-weight: normal;
+  opacity: 0.75;
+}
+
+/* ---- タグの色（色相だけを --tag-h で受け取り、鮮やかさと明るさは一定にしてパステル調にする） ---- */
+
+.tag-colored {
+  --tag-stripe: hsl(var(--tag-h, 0) 62% 66%);
+  --tag-bg: hsl(var(--tag-h, 0) 72% 91%);
+  --tag-fg: hsl(var(--tag-h, 0) 45% 26%);
+}
+
+@media (prefers-color-scheme: dark) {
+  .tag-colored {
+    --tag-stripe: hsl(var(--tag-h, 0) 45% 58%);
+    --tag-bg: hsl(var(--tag-h, 0) 26% 27%);
+    --tag-fg: hsl(var(--tag-h, 0) 55% 86%);
+  }
+}
+
+/* 一覧・ノートの一覧・絞り込みの、タグの札 */
+.tag.tag-colored {
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--tag-bg);
+  color: var(--tag-fg);
+}
+
+.tag.tag-colored::before {
+  content: none;
+}
+
+.chip.tag-colored {
+  background: var(--tag-bg);
+  color: var(--tag-fg);
+  border-color: transparent;
+}
+
+.chip.tag-colored.on {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  font-weight: 600;
+}
+
+/* カレンダーの予定の左端の線（最初のタグの色） */
+.calendar .mk-tag {
+  box-shadow: inset 5px 0 0 var(--tag-stripe);
+}
+
+.calendar .mk-tag > * {
+  padding-left: 5px;
+}
+
+/* ガントの名前の列の左端の線 */
+.mk-name.tag-colored {
+  box-shadow: inset 3px 0 0 var(--tag-stripe);
+}
+
+/* タグの入力欄のチップ（タグの色の札）と、色を選ぶ印 */
+.tag-chip.tag-colored {
+  background: var(--tag-bg);
+  color: var(--tag-fg);
+  padding-left: 4px;
+}
+
+.tag-chip .tag-color-button {
+  display: inline-grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  padding: 0 3px;
+  line-height: 1;
+}
+
+.tag-color-picker {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 6;
+  width: 260px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+  color: var(--text);
+  cursor: default;
+}
+
+.tag-color-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.tag-color-title small {
+  color: var(--muted);
+}
+
+.tag-color-preview {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--tag-bg);
+  color: var(--tag-fg);
+  box-shadow: inset 4px 0 0 var(--tag-stripe);
+}
+
+.tag-color-swatches {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+
+.tag-color-swatch {
+  height: 22px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--tag-stripe);
+}
+
+.tag-color-swatch.on {
+  outline: 2px solid var(--selected-ring);
+  outline-offset: 1px;
+}
+
+/* 色相の帯。鮮やかさと明るさは色見本と同じにする（.properties .tag-input input より強くする） */
+.tag-input .tag-color-picker input.tag-color-slider {
+  width: 100%;
+  margin: 10px 0 4px;
+  accent-color: var(--text);
+  height: 14px;
+  border-radius: 7px;
+  appearance: none;
+  background: linear-gradient(
+    to right,
+    hsl(0 62% 66%),
+    hsl(60 62% 66%),
+    hsl(120 62% 66%),
+    hsl(180 62% 66%),
+    hsl(240 62% 66%),
+    hsl(300 62% 66%),
+    hsl(359 62% 66%)
+  );
+}
+
+.tag-input .tag-color-picker input.tag-color-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--text);
+  cursor: pointer;
+}
+
+.tag-color-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
+.tag-swatch {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--tag-stripe);
+}
+
+.editor-toolbar .separator {
+  width: 1px;
+  margin: 2px 4px;
+  background: var(--border);
+}
+
+button.danger {
+  color: var(--danger);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dialog-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+}
+
+.dialog-inline input {
+  width: 80px;
+}

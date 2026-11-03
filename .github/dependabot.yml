@@ -1,0 +1,30 @@
+# 依存パッケージと GitHub Actions の更新を、週に1回まとめて PR にする
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # 出たばかりの版（乗っ取られて出された版は、すぐ取り下げられることが多い）を避ける
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    ignore:
+      # 裏方は Electron が同梱する Node（今は 24）の上で動くので、型もそのメジャー版に合わせる。
+      # Electron の Node が上がったら、ここを外して @types/node を上げる
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+    groups:
+      # メジャーでない更新は1つの PR にまとめる
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ['*']

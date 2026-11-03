@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# 同じブランチ・PRで新しく走ったら、古い実行は止める
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# フォークからの PR でも動くよう、読み取りだけにする（Secret も使わない）
+permissions:
+  contents: read
+
+jobs:
+  check:
+    # Windows 専用のアプリなので、改行やパスの問題に早く気づけるよう Windows で回す
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      # アクションはコミットで固定する（Dependabot が更新の PR を出す）
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      # postinstallでElectron本体のダウンロードも行う
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run lint
+
+      - run: npm test
+
+      - run: npx electron-vite build

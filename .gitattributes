@@ -1,0 +1,11 @@
+# 改行コードはLFに統一する（Windowsでも変換しない）
+* text=auto eol=lf
+*.md text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.json text eol=lf
+
+# バイナリ
+*.png binary
+*.jpg binary
+*.ico binary
