@@ -95,7 +95,7 @@ function PropertyForm({
   onOpen
 }: Props): React.JSX.Element {
   // 元のノートの選択肢（新しい順）
-  const noteOptions = useMemo(() => listNotes(notes, []).filter((n) => n.id), [notes])
+  const noteOptions = useMemo(() => listNotes(notes).filter((n) => n.id), [notes])
   const sourceNote = ticket.source ? notes.find((n) => n.id === ticket.source) : undefined
   const children = useMemo(
     () => (ticket.id ? tickets.filter((t) => t.parent === ticket.id) : []),

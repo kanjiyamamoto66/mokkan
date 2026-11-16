@@ -1,4 +1,12 @@
-import { IPC, type Onboarding, type RuleFileStatus } from '../shared/api'
+import {
+  IPC,
+  type CreateNoteRequest,
+  type Onboarding,
+  type RuleFileStatus,
+  type TemplateKind
+} from '../shared/api'
+import { asAiService, type AiService } from '../shared/aiService'
+import { isSafeNoteFolder } from '../shared/note'
 import { validDate } from '../shared/schedule'
 import { asListSort, type ListSort } from '../shared/ticket'
 import type { TaskStore } from './taskStore'
@@ -78,6 +86,51 @@ export function normalizeFromNoteOptions(value: unknown): {
   return { homeworkItem: item, assignee: names, due: date }
 }
 
+/** テンプレート・フォルダの名前の長さの上限（画面から来た値の確かめに使う） */
+const MAX_NAME_LENGTH = 200
+
+/**
+ * 画面から来たテンプレートの名前を確かめる。null・undefined・空文字は既定のテンプレート（null）
+ * パスにはせず、裏方がフォルダにある名前と比べるだけなので、ここでは形だけを確かめる
+ */
+export function normalizeTemplateName(value: unknown): string | null {
+  if (value === undefined || value === null || value === '') return null
+  const name = requireString(value, 'template')
+  // eslint-disable-next-line no-control-regex
+  if (name.length > MAX_NAME_LENGTH || /[\\/\u0000-\u001f\u007f]/.test(name)) {
+    throw new Error('テンプレートの名前が正しくありません')
+  }
+  return name
+}
+
+/** 画面から来たテンプレートの種類を確かめる */
+export function requireTemplateKind(value: unknown): TemplateKind {
+  if (value !== 'ticket' && value !== 'note')
+    throw new Error('テンプレートの種類が正しくありません')
+  return value
+}
+
+/**
+ * 画面から来た notes/ の中のフォルダ（`案件A/定例` の形。空文字は notes/ の直下）を確かめる
+ * 裏方は、あるフォルダかどうかも確かめる
+ */
+export function normalizeNoteFolder(value: unknown): string {
+  if (value === undefined || value === null) return ''
+  const folder = requireString(value, 'folder')
+  if (folder.length > 1000 || !isSafeNoteFolder(folder)) {
+    throw new Error('フォルダの指定が正しくありません')
+  }
+  return folder
+}
+
+/** 画面から来た「新しいノートを作る」の指定を確かめる */
+export function normalizeCreateNoteRequest(value: unknown): CreateNoteRequest {
+  if (value === undefined || value === null) return { template: null, folder: '' }
+  if (typeof value !== 'object' || Array.isArray(value)) throw new Error('指定が正しくありません')
+  const { template, folder } = value as Record<string, unknown>
+  return { template: normalizeTemplateName(template), folder: normalizeNoteFolder(folder) }
+}
+
 /** タグの名前の長さの上限 */
 const MAX_TAG_LENGTH = 100
 
@@ -124,7 +177,16 @@ type TicketStore = Pick<
   | 'updateRuleFiles'
   | 'setTagColor'
   | 'search'
+  | 'listTemplates'
+  | 'createNoteFolder'
+  | 'moveNote'
+  | 'lint'
+  | 'backlinks'
+  | 'fixLink'
 >
+
+/** 「直す」で受け取るリンク先の長さの上限 */
+const MAX_HREF_LENGTH = 2000
 
 /** IPC のハンドラー。引数は ipcMain.handle の event を除いたもの */
 export type IpcHandler = (...args: unknown[]) => unknown
@@ -173,6 +235,18 @@ export function ticketHandlers(
 
     [IPC.setTagColor]: (tag, hue) => getStore().setTagColor(normalizeTag(tag), requireHue(hue)),
 
+    [IPC.listTemplates]: () => getStore().listTemplates(),
+
+    // フォルダの名前の決まり（使えない文字など）は裏方で確かめて、分かる文で返す
+    [IPC.createNoteFolder]: (parent, name) => {
+      const folderName = requireString(name, 'name')
+      if (folderName.length > MAX_NAME_LENGTH) throw new Error('フォルダの名前が長すぎます')
+      return getStore().createNoteFolder(normalizeNoteFolder(parent), folderName)
+    },
+
+    [IPC.moveNote]: (fileName, folder) =>
+      getStore().moveNote(requireString(fileName, 'fileName'), normalizeNoteFolder(folder)),
+
     // 検索の文字列は長さだけを確かめる（ファイルには書かない）。文字起こしを探すのは true のときだけ
     [IPC.search]: (query, options) => {
       const q = requireString(query, 'query')
@@ -182,6 +256,18 @@ export function ticketHandlers(
         options !== null &&
         (options as Record<string, unknown>).includeTranscript === true
       return getStore().search(q, { includeTranscript })
+    },
+
+    // 今日の日付は裏方で決める（画面から受け取らない）
+    [IPC.lint]: () => getStore().lint(),
+
+    [IPC.backlinks]: (fileName) => getStore().backlinks(requireString(fileName, 'fileName')),
+
+    // 書き換えるのは、TaskStore が一覧にあるファイルのうち、そのリンク先のリンクだけ
+    [IPC.fixLink]: (fileName, href) => {
+      const h = requireString(href, 'href')
+      if (h === '' || h.length > MAX_HREF_LENGTH) throw new Error('リンク先が正しくありません')
+      return getStore().fixLink(requireString(fileName, 'fileName'), h)
     },
 
     [IPC.openExternal]: async (fileName) => {
@@ -260,6 +346,10 @@ interface SettingsStore {
   saveListSort: (sort: ListSort) => void
   getUserName: () => string
   saveUserName: (userName: string) => void
+  getTemplateChoice: (kind: TemplateKind) => string | null
+  saveTemplateChoice: (kind: TemplateKind, name: string | null) => void
+  getAiService: () => AiService
+  saveAiService: (service: AiService) => void
 }
 
 /** 個人設定の IPC のハンドラー。画面から来た値は確かめてから保存する */
@@ -279,6 +369,20 @@ export function settingsHandlers(settings: SettingsStore): Record<string, IpcHan
       const name = normalizeUserName(userName)
       settings.saveUserName(name)
       return name
+    },
+
+    [IPC.getTemplateChoice]: (kind) => settings.getTemplateChoice(requireTemplateKind(kind)),
+
+    [IPC.setTemplateChoice]: (kind, name) =>
+      settings.saveTemplateChoice(requireTemplateKind(kind), normalizeTemplateName(name)),
+
+    [IPC.getAiService]: () => settings.getAiService(),
+
+    // 知っている AI の名前だけを受け付ける（呼ぶコマンドは裏方が名前から決める）
+    [IPC.setAiService]: (service) => {
+      const valid = asAiService(service)
+      if (!valid) throw new Error('AI の名前が正しくありません')
+      settings.saveAiService(valid)
     }
   }
 }

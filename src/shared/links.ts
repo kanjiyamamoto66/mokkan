@@ -5,25 +5,62 @@ import { ARCHIVE_PREFIX } from './archive'
 import { NOTES_PREFIX } from './note'
 import { idFromFileName } from './ticket'
 
-/** キー（Ticket.fileName・Note.fileName）が入っているフォルダ（tasks/ の中） */
-function folderOf(key: string): string {
-  if (key.startsWith(ARCHIVE_PREFIX)) return 'archive'
-  if (key.startsWith(NOTES_PREFIX)) return 'notes'
-  return 'tickets'
+/**
+ * キー（Ticket.fileName・Note.fileName）のファイルの、tasks/ からのフォルダの並び
+ * `x.md` → [tickets]、`archive/x.md` → [archive]、`notes/案件A/x.md` → [notes, 案件A]
+ */
+function foldersOf(key: string): string[] {
+  if (key.startsWith(ARCHIVE_PREFIX)) return ['archive']
+  if (key.startsWith(NOTES_PREFIX)) return key.split('/').slice(0, -1)
+  return ['tickets']
 }
 
 function nameOf(key: string): string {
   return key.slice(key.lastIndexOf('/') + 1)
 }
 
+/** キーのファイルの、tasks/ からのパス（`tickets/x.md`・`archive/x.md`・`notes/案件A/x.md`） */
+export function tasksPathOf(key: string): string {
+  return [...foldersOf(key), nameOf(key)].join('/')
+}
+
 /**
- * from のファイルから to のファイルへの相対パス（同じフォルダならファイル名だけ、違えば `../フォルダ/ファイル名`）
+ * from のファイルに書いたリンク先（相対パス）が指すファイルの、tasks/ からのパス
+ * `?`・`#` から後ろは除き、`%` の書き方は戻す。tasks/ の外を指す・URL・絶対パスなら null
+ */
+export function resolveLinkPath(fromKey: string, href: string): string | null {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return null
+  let path = href.split(/[?#]/)[0]
+  try {
+    path = decodeURIComponent(path)
+  } catch {
+    // % の書き方が崩れていても、そのまま読む
+  }
+  if (path.startsWith('/')) return null
+  const parts = foldersOf(fromKey)
+  for (const segment of path.split('/')) {
+    if (segment === '' || segment === '.') continue
+    if (segment === '..') {
+      if (parts.length === 0) return null
+      parts.pop()
+    } else {
+      parts.push(segment)
+    }
+  }
+  return parts.join('/')
+}
+
+/**
+ * from のファイルから to のファイルへの相対パス
+ * 同じフォルダならファイル名だけ、違えば `../フォルダ/ファイル名`（notes/ の中のフォルダの深さに合わせて `../` を重ねる）
  * ほかのエディタや GitHub で開いたときもたどれるよう、今のファイル名で書く
  */
 export function relativeLinkPath(fromKey: string, toKey: string): string {
-  const from = folderOf(fromKey)
-  const to = folderOf(toKey)
-  return from === to ? nameOf(toKey) : `../${to}/${nameOf(toKey)}`
+  const from = foldersOf(fromKey)
+  const to = foldersOf(toKey)
+  let same = 0
+  while (same < from.length && same < to.length && from[same] === to[same]) same++
+  return [...from.slice(same).map(() => '..'), ...to.slice(same), nameOf(toKey)].join('/')
 }
 
 /**
@@ -47,6 +84,25 @@ export function idFromHref(href: string): string | null {
     // % の書き方が崩れていても、そのまま読む
   }
   return idFromFileName(path.slice(path.lastIndexOf('/') + 1))
+}
+
+/** 文の中の ID（`YYYYMMDD-HHMM-xxxx`）。前後が英数字に続いているものは除く */
+const ID_IN_TEXT = /(?<![0-9A-Za-z])\d{8}-\d{4}-[a-z0-9]{4}(?![0-9A-Za-z])/g
+
+export interface IdMatch {
+  /** 文字列の中の位置 */
+  start: number
+  end: number
+  id: string
+}
+
+/** 文字列の中の ID を探す */
+export function findIds(text: string): IdMatch[] {
+  return [...text.matchAll(ID_IN_TEXT)].map((m) => ({
+    start: m.index,
+    end: m.index + m[0].length,
+    id: m[0]
+  }))
 }
 
 /** リンクの候補にするファイル（チケット・ノート・アーカイブ） */

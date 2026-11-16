@@ -12,8 +12,16 @@ const api: MokkanApi = {
   },
   chooseFolder: () => ipcRenderer.invoke(IPC.chooseFolder),
   initFolder: () => ipcRenderer.invoke(IPC.initFolder),
-  createTicket: (tags) => ipcRenderer.invoke(IPC.createTicket, tags ?? []),
-  createNote: () => ipcRenderer.invoke(IPC.createNote),
+  createTicket: (tags, template) =>
+    ipcRenderer.invoke(IPC.createTicket, tags ?? [], template ?? null),
+  createNote: (request) => ipcRenderer.invoke(IPC.createNote, request ?? {}),
+  listTemplates: () => ipcRenderer.invoke(IPC.listTemplates),
+  getTemplateChoice: (kind) => ipcRenderer.invoke(IPC.getTemplateChoice, kind),
+  setTemplateChoice: (kind, name) => ipcRenderer.invoke(IPC.setTemplateChoice, kind, name),
+  getAiService: () => ipcRenderer.invoke(IPC.getAiService),
+  setAiService: (service) => ipcRenderer.invoke(IPC.setAiService, service),
+  createNoteFolder: (parent, name) => ipcRenderer.invoke(IPC.createNoteFolder, parent, name),
+  moveNote: (fileName, folder) => ipcRenderer.invoke(IPC.moveNote, fileName, folder),
   createTicketFromNote: (noteFileName, noteBase, title, options) =>
     ipcRenderer.invoke(IPC.createTicketFromNote, noteFileName, noteBase, title, options ?? {}),
   checkRuleFiles: () => ipcRenderer.invoke(IPC.checkRuleFiles),
@@ -37,6 +45,10 @@ const api: MokkanApi = {
   getOnboarding: () => ipcRenderer.invoke(IPC.getOnboarding),
   dismissOnboarding: () => ipcRenderer.invoke(IPC.dismissOnboarding),
   search: (query, options) => ipcRenderer.invoke(IPC.search, query, options),
+  lint: () => ipcRenderer.invoke(IPC.lint),
+  backlinks: (fileName) => ipcRenderer.invoke(IPC.backlinks, fileName),
+  fixLink: (fileName, href) => ipcRenderer.invoke(IPC.fixLink, fileName, href),
+  copyLintReport: () => ipcRenderer.invoke(IPC.copyLintReport),
   suggestTasksFromNote: (noteFileName, noteBase, options) =>
     ipcRenderer.invoke(IPC.suggestTasksFromNote, noteFileName, noteBase, options),
   cancelSuggestTasks: () => ipcRenderer.invoke(IPC.cancelSuggestTasks)

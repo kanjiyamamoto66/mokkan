@@ -21,7 +21,15 @@ export const FIELD_ORDER = [
 ] as const
 
 /** RULES.md「ノート」の項目と、その並び順 */
-export const NOTE_FIELD_ORDER = ['id', 'date', 'tags', 'author', 'created'] as const
+export const NOTE_FIELD_ORDER = [
+  'id',
+  'type',
+  'date',
+  'reviewed',
+  'tags',
+  'author',
+  'created'
+] as const
 
 export type FieldKey = (typeof FIELD_ORDER)[number] | (typeof NOTE_FIELD_ORDER)[number]
 /** 項目の値。null は空（`項目:` の行だけ残す） */

@@ -22,7 +22,7 @@ import {
   type FieldUpdates
 } from '../../../shared/frontmatter'
 import { linkCandidates, relativeLinkPath, type LinkTarget } from '../../../shared/links'
-import { isNoteKey, parseNote, type Note } from '../../../shared/note'
+import { hasHomeworkHeading, isNoteKey, parseNote, type Note } from '../../../shared/note'
 import type { TagColors } from '../../../shared/tagColor'
 import {
   formatDate,
@@ -45,9 +45,10 @@ import {
   type ToolbarState
 } from '../editor/toolbar'
 import { pendingSaves } from '../editor/closing'
+import Backlinks from './Backlinks'
 import EditorToolbar from './EditorToolbar'
 import LinkSuggestList from './LinkSuggestList'
-import NoteProperties from './NoteProperties'
+import NoteProperties, { type NoteBodyInfo } from './NoteProperties'
 import PropertyForm from './PropertyForm'
 
 /** 入力が止まってから保存するまでの時間 */
@@ -59,6 +60,8 @@ interface Props {
   isNew: boolean
   tickets: Ticket[]
   notes: Note[]
+  /** notes/ の下のフォルダ（ノートを移す先の候補） */
+  noteFolders: string[]
   /** タグの色（TAGS.md） */
   tagColors: TagColors
   onOpen: (fileName: string) => void
@@ -67,7 +70,7 @@ interface Props {
   /** 戻る先のタイトル（ボタンの説明に出す） */
   backLabel?: string
   onClose: () => void
-  /** アーカイブ・戻すでファイルを移したとき（元のキー → 移した後のキー） */
+  /** アーカイブ・戻す・ノートを別のフォルダに移すでファイルを移したとき（元のキー → 移した後のキー） */
   onMoved: (moved: Record<string, string>) => void
   /** 検索の結果から開いたとき、本文で探して選ぶ語（nonce が変わるたびに探し直す） */
   jump?: { term: string; nonce: number }
@@ -100,6 +103,7 @@ function TicketEditor({
   isNew,
   tickets,
   notes,
+  noteFolders,
   tagColors,
   onOpen,
   onBack,
@@ -557,9 +561,25 @@ function TicketEditor({
   }
 
   /** AI に送る本文の大きさと、「文字起こし」の節があるか（送る前の確認に出す） */
-  const noteBodyInfo = (): { bodyLength: number; hasTranscript: boolean } => {
-    const body = bodyOf(baseRef.current ?? '')
-    return { bodyLength: body.length, hasTranscript: /^#{1,6}[ \t]+文字起こし[ \t]*$/m.test(body) }
+  const noteBodyInfo = (): NoteBodyInfo => {
+    const text = baseRef.current ?? ''
+    const body = bodyOf(text)
+    return {
+      bodyLength: body.length,
+      hasTranscript: /^#{1,6}[ \t]+文字起こし[ \t]*$/m.test(body),
+      hasHomework: hasHomeworkHeading(text)
+    }
+  }
+
+  /** ノートを notes/ の中の別のフォルダに移す。残っている編集を保存してから移す */
+  const moveNote = async (folder: string): Promise<void> => {
+    await save()
+    if (conflictRef.current) return
+    try {
+      onMoved(await window.api.moveNote(fileName, folder))
+    } catch (error) {
+      setNotice({ kind: 'error', message: `移せませんでした：${(error as Error).message}` })
+    }
   }
 
   /** 本文で選んでいる文字（「＋ ここからチケット」のタイトルの初めの値に使う） */
@@ -831,7 +851,12 @@ function TicketEditor({
           homeworkItem={homeworkItemAtCursor}
           onSuggestTasks={suggestTasks}
           noteBodyInfo={noteBodyInfo}
+          folders={noteFolders}
+          onMove={(folder) => void moveNote(folder)}
         />
+      )}
+      {(ticket || note) && (
+        <Backlinks fileName={fileName} isNote={isNote} stamp={linkTargets} onOpen={onOpen} />
       )}
       <EditorToolbar
         state={toolbar}

@@ -1,8 +1,14 @@
-// ノートの画面から、AI（パソコンの Claude Code）にタスクの候補を出してもらう窓
+// ノートの画面から、AI（パソコンの Claude Code か Cursor。設定で選ぶ）にタスクの候補を出してもらう窓
 // 1. 送る前に確かめる（文字起こしを送るかも選ぶ） 2. 候補を出してもらう 3. 人が選んで直す 4. 選んだものを作る
-// 候補を出すまでは何も作らない（RULES.md「議事メモからタスクを起こす」の、人が選ぶ決まり）
+// 候補を出すまでは何も作らない（RULES.md「ノートからタスクを起こす」の、人が選ぶ決まり）
 
 import { useEffect, useState } from 'react'
+import {
+  AI_SERVICE_INSTALL_HINTS,
+  AI_SERVICE_NAMES,
+  DEFAULT_AI_SERVICE,
+  type AiService
+} from '../../../shared/aiService'
 import type { AiCandidate, AiSuggestResult, FromNoteRequest } from '../../../shared/api'
 
 interface Props {
@@ -10,6 +16,8 @@ interface Props {
   bodyLength: number
   /** 「文字起こし」の節があるか */
   hasTranscript: boolean
+  /** 「宿題」の見出しがあるか（あれば、作ったチケットへのリンクを書き戻す） */
+  hasHomework: boolean
   onSuggest: (includeTranscript: boolean) => Promise<AiSuggestResult>
   onCancelSuggest: () => void
   /** 1件作る。作れなかったら理由を返す */
@@ -34,6 +42,7 @@ type Step =
 function AiTasksDialog({
   bodyLength,
   hasTranscript,
+  hasHomework,
   onSuggest,
   onCancelSuggest,
   onCreate,
@@ -43,6 +52,15 @@ function AiTasksDialog({
   const [includeTranscript, setIncludeTranscript] = useState(true)
   const [drafts, setDrafts] = useState<Draft[]>([])
   const [error, setError] = useState<string | null>(null)
+  /** 送る先の AI（設定）。読めるまでは既定のものの名前を出す */
+  const [service, setService] = useState<AiService>(DEFAULT_AI_SERVICE)
+  useEffect(() => {
+    window.api
+      .getAiService()
+      .then(setService)
+      .catch((e) => console.error('[mokkan] 使う AI の設定を読めませんでした', e))
+  }, [])
+  const serviceName = AI_SERVICE_NAMES[service]
 
   // 作っている途中は閉じない（Esc で閉じるのは、それ以外のとき）
   const busy = step.kind === 'running' || step.kind === 'creating'
@@ -59,9 +77,7 @@ function AiTasksDialog({
     setStep({ kind: 'running' })
     const result = await onSuggest(includeTranscript)
     if (result.status === 'not-installed') {
-      setError(
-        'Claude Code（claude コマンド）が見つかりません。Claude Code をインストールしてログインしてから、もう一度試してください。'
-      )
+      setError(AI_SERVICE_INSTALL_HINTS[service])
       setStep({ kind: 'confirm' })
       return
     }
@@ -121,9 +137,17 @@ function AiTasksDialog({
         {step.kind === 'confirm' && (
           <>
             <p className="dialog-note">
-              このノートを AI（このパソコンの Claude Code）に送り、タスクの候補を出してもらいます。
-              候補を見て選んでから作ります。送るだけでは何も作りません。
+              {`このノートを AI（このパソコンの ${serviceName}）に送り、タスクの候補を出してもらいます。`}
+              候補を見て選んでから作ります。送るだけでは何も作りません。使う AI
+              は設定で変えられます。
             </p>
+            {service === 'cursor' && (
+              <p className="dialog-note">
+                {
+                  'Cursor には、送った会話を残さない設定がありません。送ったノートの中身は、Cursor の会話の履歴に残ります。'
+                }
+              </p>
+            )}
             <p className="dialog-note">
               文字起こしには、社外の人の発言や秘密の話が入っていることがあります。送ってよいかを確かめてください。
             </p>
@@ -172,8 +196,10 @@ function AiTasksDialog({
               </p>
             ) : (
               <p className="dialog-note">
-                作るものを選び、必要なら直してください。作ると「宿題」に「→
-                チケットへのリンク」を書き戻します。
+                作るものを選び、必要なら直してください。
+                {hasHomework
+                  ? '作ると「宿題」に「→ チケットへのリンク」を書き戻します。'
+                  : 'このノートには「宿題」の見出しがないので、ノートには書き足しません（チケットの「元のノート」からこのノートに戻れます）。'}
               </p>
             )}
             <ul className="ai-candidates">

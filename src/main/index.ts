@@ -1,22 +1,30 @@
-import { app, shell, BrowserWindow, dialog, ipcMain, session } from 'electron'
+import { app, shell, BrowserWindow, clipboard, dialog, ipcMain, session } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { IPC, type AppState } from '../shared/api'
+import { lintToMarkdown } from '../shared/lint'
+import { formatDate } from '../shared/ticket'
 import {
+  getAiService,
   getLastVersion,
   getListSort,
   getTasksDir,
+  getTemplateChoice,
   getUserName,
+  saveAiService,
   saveLastVersion,
   saveListSort,
   saveTasksDir,
+  saveTemplateChoice,
   saveUserName
 } from './settings'
 import {
   isExternalUrl,
+  normalizeCreateNoteRequest,
   normalizeFromNoteOptions,
   normalizeTag,
+  normalizeTemplateName,
   normalizeTitle,
   onboardingHandlers,
   requireString,
@@ -24,7 +32,7 @@ import {
   settingsHandlers,
   ticketHandlers
 } from './ipc'
-import { cancelClaude, suggestTasksFromNote } from './aiTasks'
+import { cancelAi, suggestTasksFromNote } from './aiTasks'
 import { TaskStore } from './taskStore'
 import bundledRules from '../../templates/RULES.md?raw'
 
@@ -101,14 +109,15 @@ function registerIpc(): void {
 
   // 作成者には、設定の「自分の名前」を入れる
   // 絞り込みでタグを1つだけ選んでいるときは、そのタグを初めの値にする（画面から渡す）
-  ipcMain.handle(IPC.createTicket, async (_, tags: unknown) => ({
+  ipcMain.handle(IPC.createTicket, async (_, tags: unknown, template: unknown) => ({
     fileName: await requireStore().createTicket(
       getUserName(),
-      tags === undefined ? [] : requireStringArray(tags, 'tags').map(normalizeTag)
+      tags === undefined ? [] : requireStringArray(tags, 'tags').map(normalizeTag),
+      normalizeTemplateName(template)
     )
   }))
-  ipcMain.handle(IPC.createNote, async () => ({
-    fileName: await requireStore().createNote(getUserName())
+  ipcMain.handle(IPC.createNote, async (_, request: unknown) => ({
+    fileName: await requireStore().createNote(getUserName(), normalizeCreateNoteRequest(request))
   }))
   ipcMain.handle(
     IPC.createTicketFromNote,
@@ -121,7 +130,8 @@ function registerIpc(): void {
         normalizeFromNoteOptions(options)
       )
   )
-  // ノートを AI（パソコンの Claude Code）に送り、タスクの候補を出してもらう。チケットは作らない
+  // ノートを AI（パソコンの Claude Code か Cursor CLI。設定で選ぶ）に送り、タスクの候補を出してもらう。
+  // チケットは作らない。使う AI は画面から受け取らず、設定から読む
   ipcMain.handle(
     IPC.suggestTasksFromNote,
     (_, noteFileName: unknown, noteBase: unknown, options: unknown) =>
@@ -132,17 +142,27 @@ function registerIpc(): void {
         typeof options === 'object' &&
           options !== null &&
           (options as Record<string, unknown>).includeTranscript === true,
-        bundledRules
+        bundledRules,
+        getAiService()
       )
   )
-  ipcMain.handle(IPC.cancelSuggestTasks, () => cancelClaude())
+  ipcMain.handle(IPC.cancelSuggestTasks, () => cancelAi())
   ipcMain.handle(IPC.createNextRepeat, (_, fileName: unknown) =>
     requireStore().createNextRepeat(requireString(fileName, 'fileName'), getUserName())
   )
 
   const handlers = {
     ...ticketHandlers(requireStore, (path) => shell.openPath(path)),
-    ...settingsHandlers({ getListSort, saveListSort, getUserName, saveUserName })
+    ...settingsHandlers({
+      getListSort,
+      saveListSort,
+      getUserName,
+      saveUserName,
+      getTemplateChoice,
+      saveTemplateChoice,
+      getAiService,
+      saveAiService
+    })
   }
   for (const [channel, handler] of Object.entries(handlers)) {
     ipcMain.handle(channel, (_, ...args: unknown[]) => handler(...args))
@@ -159,6 +179,15 @@ function registerIpc(): void {
   for (const [channel, handler] of Object.entries(onboarding)) {
     ipcMain.handle(channel, (_, ...args: unknown[]) => handler(...args))
   }
+
+  // 点検の結果を md にしてクリップボードに入れる（ファイルには書かない）。
+  // 画面から任意の文字を受け取らないよう、裏方で点検し直して md を作る。
+  // 画面の navigator.clipboard は、権限をすべて断っている（下の setPermissionCheckHandler）ので使えない
+  ipcMain.handle(IPC.copyLintReport, async () => {
+    const items = await requireStore().lint()
+    clipboard.writeText(lintToMarkdown(items, formatDate(new Date())))
+    return items.length
+  })
 
   ipcMain.handle(IPC.revealFolder, async () => {
     const tasksDir = requireStore().getState().tasksDir

@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppState } from '../shared/api'
 import { findWarnings } from '../shared/ticket'
-import { TaskStore } from './taskStore'
+import { SAMPLE_TEMPLATES, TaskStore } from './taskStore'
 
 const template = readFileSync(join(__dirname, '../../templates/TEMPLATE.md'), 'utf8')
 
@@ -81,8 +81,14 @@ describe('TaskStore', () => {
       'NOTE_TEMPLATE.md',
       'RULES.md',
       'TEMPLATE.md',
+      'notes',
+      'templates',
       'tickets'
     ])
+    expect(readdirSync(join(tasksDir, 'notes'))).toEqual(['共通'])
+    expect(readdirSync(join(tasksDir, 'templates', 'notes')).sort()).toEqual(
+      ['入口.md', '参照.md', '手順.md', '解説.md', '議事メモ.md'].sort()
+    )
     expect(readFileSync(join(tasksDir, 'RULES.md'), 'utf8')).toBe('自分で直したルール\n')
     expect(readFileSync(join(tasksDir, 'TEMPLATE.md'), 'utf8')).toBe(template)
   })
@@ -673,11 +679,12 @@ describe('TaskStore', () => {
       writeFileSync(join(tasksDir, 'TEMPLATE.md'), template.replace(/\n/g, '\r\n'))
       const s = await startStore()
       expect(await s.checkRuleFiles()).toEqual([
-        { name: 'RULES.md', state: 'different' },
-        { name: 'TEMPLATE.md', state: 'same' },
-        { name: 'NOTE_TEMPLATE.md', state: 'missing' },
-        { name: 'CLAUDE.md', state: 'missing' },
-        { name: 'AGENTS.md', state: 'missing' }
+        { name: 'RULES.md', state: 'different', sample: false },
+        { name: 'TEMPLATE.md', state: 'same', sample: false },
+        { name: 'NOTE_TEMPLATE.md', state: 'missing', sample: false },
+        { name: 'CLAUDE.md', state: 'missing', sample: false },
+        { name: 'AGENTS.md', state: 'missing', sample: false },
+        ...SAMPLE_TEMPLATES.map(({ name }) => ({ name, state: 'missing', sample: true }))
       ])
     })
 
@@ -700,7 +707,8 @@ describe('TaskStore', () => {
         ['TEMPLATE.md', 'different'], // 選ばなかったものは変えない
         ['NOTE_TEMPLATE.md', 'missing'],
         ['CLAUDE.md', 'same'],
-        ['AGENTS.md', 'same']
+        ['AGENTS.md', 'same'],
+        ...SAMPLE_TEMPLATES.map(({ name }) => [name, 'missing'])
       ])
       expect(readFileSync(join(tasksDir, 'TEMPLATE.md'), 'utf8')).toBe('自分で直したテンプレート\n')
       expect(readFileSync(join(tasksDir, 'CLAUDE.md'), 'utf8')).toBe(

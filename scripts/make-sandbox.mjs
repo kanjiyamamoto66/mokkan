@@ -214,9 +214,10 @@ function transcript() {
 }
 
 const notes = {
-  '20261015-1400-mt01_A社定例.md': [
+  'A社/20261015-1400-mt01_A社定例.md': [
     '---',
     'id: 20261015-1400-mt01',
+    'type: record',
     `date: ${day(-2)}`,
     'tags: [A社]',
     'author: 高橋',
@@ -245,6 +246,7 @@ const notes = {
   '20261012-2000-nt01_引っ越しの調べもの.md': [
     '---',
     'id: 20261012-2000-nt01',
+    'type: record',
     `date: ${day(-5)}`,
     'tags: [個人]',
     'author:',
@@ -255,6 +257,53 @@ const notes = {
     '',
     '- 見積は3社から取る（20261001-0900-pa01 が終わってから）',
     '- 粗大ごみは2週間前までに申し込む',
+    ''
+  ].join('\n'),
+  'A社/20261001-0900-ix01_A社_入口.md': [
+    '---',
+    'id: 20261001-0900-ix01',
+    'type: index',
+    `date: ${day(-16)}`,
+    'tags: [A社]',
+    'author: 高橋',
+    `created: ${day(-16)}`,
+    '---',
+    '',
+    '# A社_入口',
+    '',
+    '## 目的',
+    '',
+    'A社向けの見積と導入支援。',
+    '',
+    '## 今の状態',
+    '',
+    '見積を出す段階。',
+    '',
+    '## ノートの一覧',
+    '',
+    '- [見積の出し方](../共通/20261002-0900-kn01_見積の出し方.md)：見積書の作り方と送り方',
+    ''
+  ].join('\n'),
+  '共通/20261002-0900-kn01_見積の出し方.md': [
+    '---',
+    'id: 20261002-0900-kn01',
+    'type: knowledge',
+    `date: ${day(-15)}`,
+    `reviewed: ${day(-15)}`,
+    'tags: []',
+    'author: 高橋',
+    `created: ${day(-15)}`,
+    '---',
+    '',
+    '# 見積の出し方',
+    '',
+    '見積書を作って送るまでの手順。',
+    '',
+    '## 手順',
+    '',
+    '1. 前回の見積書を複製する',
+    '2. 金額は税込で書く',
+    '3. PDF にして送る',
     ''
   ].join('\n')
 }
@@ -280,5 +329,22 @@ for (const [name, source] of [
   write(join(tasksDir, name), readFileSync(join(root, 'templates', source), 'utf8'))
 }
 for (const [name, content] of Object.entries(files)) write(join(ticketsDir, name), content)
-for (const [name, content] of Object.entries(notes)) write(join(tasksDir, 'notes', name), content)
+for (const [name, content] of Object.entries(notes)) {
+  mkdirSync(dirname(join(tasksDir, 'notes', name)), { recursive: true })
+  write(join(tasksDir, 'notes', name), content)
+}
+// ノートのテンプレートの見本（アプリの「準備する」と同じ名前で置く）
+mkdirSync(join(tasksDir, 'templates', 'notes'), { recursive: true })
+for (const [name, source] of [
+  ['議事メモ', 'meeting'],
+  ['手順', 'howto'],
+  ['参照', 'reference'],
+  ['解説', 'explanation'],
+  ['入口', 'index']
+]) {
+  write(
+    join(tasksDir, 'templates', 'notes', `${name}.md`),
+    readFileSync(join(root, 'templates', 'samples', 'notes', `${source}.md`), 'utf8')
+  )
+}
 console.log(`sandbox：${tasksDir}`)

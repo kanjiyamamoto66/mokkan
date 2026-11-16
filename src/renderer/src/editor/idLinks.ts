@@ -6,26 +6,9 @@ import type { Node } from '@milkdown/kit/prose/model'
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
 import { Decoration, DecorationSet, type EditorView } from '@milkdown/kit/prose/view'
 import { $prose } from '@milkdown/kit/utils'
-import { idFromHref } from '../../../shared/links'
+import { findIds, idFromHref } from '../../../shared/links'
 
-/** 文の中の ID（`YYYYMMDD-HHMM-xxxx`）。前後が英数字に続いているものは除く */
-const ID_IN_TEXT = /(?<![0-9A-Za-z])\d{8}-\d{4}-[a-z0-9]{4}(?![0-9A-Za-z])/g
-
-export interface IdMatch {
-  /** 文字列の中の位置 */
-  start: number
-  end: number
-  id: string
-}
-
-/** 文字列の中の ID を探す */
-export function findIds(text: string): IdMatch[] {
-  return [...text.matchAll(ID_IN_TEXT)].map((m) => ({
-    start: m.index,
-    end: m.index + m[0].length,
-    id: m[0]
-  }))
-}
+export { findIds, type IdMatch } from '../../../shared/links'
 
 export interface IdLinkOptions {
   /** ID のタイトル。チケットにもノートにもない ID なら undefined */

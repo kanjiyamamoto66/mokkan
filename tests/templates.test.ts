@@ -3,7 +3,17 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 // RULES.md の「文字コードはUTF-8（BOMなし）、改行はLF」を原本自身が守っているかを確かめる
-const TEMPLATES = ['RULES.md', 'TEMPLATE.md', 'NOTE_TEMPLATE.md', 'AI_GUIDE.md']
+const TEMPLATES = [
+  'RULES.md',
+  'TEMPLATE.md',
+  'NOTE_TEMPLATE.md',
+  'AI_GUIDE.md',
+  'samples/notes/meeting.md',
+  'samples/notes/howto.md',
+  'samples/notes/reference.md',
+  'samples/notes/explanation.md',
+  'samples/notes/index.md'
+]
 
 describe.each(TEMPLATES)('templates/%s', (name) => {
   const bytes = readFileSync(resolve(__dirname, '../templates', name))
