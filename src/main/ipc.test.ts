@@ -3,7 +3,10 @@ import { IPC } from '../shared/api'
 import {
   decideOnboarding,
   isExternalUrl,
+  normalizeCreateNoteRequest,
   normalizeFromNoteOptions,
+  normalizeNoteFolder,
+  normalizeTemplateName,
   normalizeTitle,
   normalizeUserName,
   onboardingHandlers,
@@ -95,6 +98,9 @@ describe('ticketHandlers', () => {
           | 'updateRuleFiles'
           | 'setTagColor'
           | 'search'
+          | 'lint'
+          | 'backlinks'
+          | 'fixLink'
       ]: Mock
     }
     openPath: Mock
@@ -112,7 +118,13 @@ describe('ticketHandlers', () => {
       checkRuleFiles: vi.fn(async () => []),
       updateRuleFiles: vi.fn(async () => []),
       setTagColor: vi.fn(async () => undefined),
-      search: vi.fn(async () => [])
+      search: vi.fn(async () => []),
+      listTemplates: vi.fn(async () => ({ tickets: [], notes: [] })),
+      createNoteFolder: vi.fn(async () => 'x'),
+      moveNote: vi.fn(async () => ({})),
+      lint: vi.fn(async () => []),
+      backlinks: vi.fn(async () => []),
+      fixLink: vi.fn(async () => undefined)
     }
     const openPath = vi.fn(async () => openPathResult)
     // テスト用の偽物なので、戻り値の型は TaskStore と完全には一致しない
@@ -135,9 +147,31 @@ describe('ticketHandlers', () => {
         IPC.updateRuleFiles,
         IPC.setTagColor,
         IPC.search,
+        IPC.listTemplates,
+        IPC.createNoteFolder,
+        IPC.moveNote,
+        IPC.lint,
+        IPC.backlinks,
+        IPC.fixLink,
         IPC.openExternal
       ].sort()
     )
+  })
+
+  it('点検は引数を受け取らず、被リンクと「直す」は文字列だけを受け付ける', async () => {
+    const { store, handlers } = setup()
+    await handlers[IPC.lint]('2020-01-01')
+    expect(store.lint).toHaveBeenCalledWith()
+    await handlers[IPC.backlinks]('notes/a.md')
+    expect(store.backlinks).toHaveBeenCalledWith('notes/a.md')
+    expect(() => handlers[IPC.backlinks](1)).toThrow('文字列ではありません')
+    await handlers[IPC.fixLink]('notes/a.md', '../tickets/b.md')
+    expect(store.fixLink).toHaveBeenCalledWith('notes/a.md', '../tickets/b.md')
+    expect(() => handlers[IPC.fixLink]('notes/a.md', '')).toThrow('リンク先が正しくありません')
+    expect(() => handlers[IPC.fixLink]('notes/a.md', 'a'.repeat(2001))).toThrow(
+      'リンク先が正しくありません'
+    )
+    expect(() => handlers[IPC.fixLink]('notes/a.md', null)).toThrow('文字列ではありません')
   })
 
   it('タグの色は、タグの名前と 0〜359 の整数（または null）だけを受け付ける', async () => {
@@ -243,6 +277,14 @@ describe('ticketHandlers', () => {
   })
 })
 
+/** テンプレートの選択を使わないテストで渡す、何もしない設定 */
+const noTemplateChoice = {
+  getTemplateChoice: () => null,
+  saveTemplateChoice: vi.fn(),
+  getAiService: () => 'claude' as const,
+  saveAiService: vi.fn()
+}
+
 describe('settingsHandlers', () => {
   it('正しい並び順だけを保存する', () => {
     const saveListSort = vi.fn()
@@ -250,7 +292,8 @@ describe('settingsHandlers', () => {
       getListSort: () => null,
       saveListSort,
       getUserName: () => '',
-      saveUserName: vi.fn()
+      saveUserName: vi.fn(),
+      ...noTemplateChoice
     })
     handlers[IPC.setListSort]({ key: 'created', direction: 'desc' })
     expect(saveListSort).toHaveBeenCalledWith({ key: 'created', direction: 'desc' })
@@ -267,9 +310,86 @@ describe('settingsHandlers', () => {
       getListSort: () => ({ key: 'title', direction: 'asc' }),
       saveListSort: vi.fn(),
       getUserName: () => '',
-      saveUserName: vi.fn()
+      saveUserName: vi.fn(),
+      ...noTemplateChoice
     })
     expect(handlers[IPC.getListSort]()).toEqual({ key: 'title', direction: 'asc' })
+  })
+})
+
+describe('テンプレートとフォルダの指定', () => {
+  it('テンプレートの名前は、空なら既定（null）。区切り文字や改行を含む名前は受け付けない', () => {
+    expect(normalizeTemplateName(undefined)).toBeNull()
+    expect(normalizeTemplateName('')).toBeNull()
+    expect(normalizeTemplateName('議事メモ')).toBe('議事メモ')
+    expect(() => normalizeTemplateName('../RULES')).toThrow('正しくありません')
+    expect(() => normalizeTemplateName('a\\b')).toThrow('正しくありません')
+    expect(() => normalizeTemplateName('a\nb')).toThrow('正しくありません')
+    expect(() => normalizeTemplateName(1)).toThrow()
+  })
+
+  it('フォルダは notes/ の外や隠しフォルダを指さない形だけを受け付ける', () => {
+    expect(normalizeNoteFolder(undefined)).toBe('')
+    expect(normalizeNoteFolder('案件A/定例')).toBe('案件A/定例')
+    expect(() => normalizeNoteFolder('../tickets')).toThrow('正しくありません')
+    expect(() => normalizeNoteFolder('案件A/../..')).toThrow('正しくありません')
+    expect(() => normalizeNoteFolder('/案件A')).toThrow('正しくありません')
+    expect(() => normalizeNoteFolder('.git')).toThrow('正しくありません')
+    expect(() => normalizeNoteFolder('C:\\x')).toThrow('正しくありません')
+  })
+
+  it('新しいノートの指定をまとめて確かめる', () => {
+    expect(normalizeCreateNoteRequest(undefined)).toEqual({ template: null, folder: '' })
+    expect(normalizeCreateNoteRequest({ template: '手順', folder: '共通' })).toEqual({
+      template: '手順',
+      folder: '共通'
+    })
+    expect(() => normalizeCreateNoteRequest('手順')).toThrow()
+  })
+
+  it('前回選んだテンプレートを種類ごとに保存する', () => {
+    const saveTemplateChoice = vi.fn()
+    const handlers = settingsHandlers({
+      getListSort: () => null,
+      saveListSort: vi.fn(),
+      getUserName: () => '',
+      saveUserName: vi.fn(),
+      getTemplateChoice: (kind) => (kind === 'note' ? '議事メモ' : null),
+      saveTemplateChoice,
+      getAiService: () => 'claude',
+      saveAiService: vi.fn()
+    })
+    expect(handlers[IPC.getTemplateChoice]('note')).toBe('議事メモ')
+    expect(handlers[IPC.getTemplateChoice]('ticket')).toBeNull()
+    handlers[IPC.setTemplateChoice]('note', '手順')
+    handlers[IPC.setTemplateChoice]('ticket', null)
+    expect(saveTemplateChoice.mock.calls).toEqual([
+      ['note', '手順'],
+      ['ticket', null]
+    ])
+    expect(() => handlers[IPC.getTemplateChoice]('rules')).toThrow('種類')
+    expect(() => handlers[IPC.setTemplateChoice]('note', '../x')).toThrow()
+  })
+})
+
+describe('使う AI', () => {
+  it('知っている AI の名前だけを保存する', () => {
+    const saveAiService = vi.fn()
+    const handlers = settingsHandlers({
+      getListSort: () => null,
+      saveListSort: vi.fn(),
+      getUserName: () => '',
+      saveUserName: vi.fn(),
+      ...noTemplateChoice,
+      getAiService: () => 'cursor',
+      saveAiService
+    })
+    expect(handlers[IPC.getAiService]()).toBe('cursor')
+    handlers[IPC.setAiService]('cursor')
+    expect(saveAiService).toHaveBeenCalledWith('cursor')
+    expect(() => handlers[IPC.setAiService]('codex')).toThrow('AI の名前が正しくありません')
+    expect(() => handlers[IPC.setAiService]('C:\\agent.exe')).toThrow('AI の名前が正しくありません')
+    expect(saveAiService).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -280,7 +400,8 @@ describe('自分の名前', () => {
       getListSort: () => null,
       saveListSort: vi.fn(),
       getUserName: () => '山田',
-      saveUserName
+      saveUserName,
+      ...noTemplateChoice
     })
     expect(handlers[IPC.setUserName]('  山田 太郎 ')).toBe('山田 太郎')
     expect(saveUserName).toHaveBeenCalledWith('山田 太郎')

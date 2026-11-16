@@ -1,14 +1,21 @@
-// ノートの frontmatter を編集するフォーム（会議の日・タグ・作成者）と、このノートから起こしたチケット
+// ノートの frontmatter を編集するフォーム（種類・日付・見直した日・フォルダ・作成者・タグ）と、このノートから起こしたチケット
 // 項目は変えたものだけを onChange で渡す
 
 import { useMemo, useRef, useState } from 'react'
 import type { FieldUpdates } from '../../../shared/frontmatter'
 import type { AiSuggestResult, FromNoteRequest } from '../../../shared/api'
 import AiTasksDialog from './AiTasksDialog'
-import { hasBackLink, parseHomeworkItem, ticketsFromNote, type Note } from '../../../shared/note'
-import { collectTags, formatDateTime, type Ticket } from '../../../shared/ticket'
+import {
+  NOTE_TYPES,
+  hasBackLink,
+  parseHomeworkItem,
+  ticketsFromNote,
+  type Note,
+  type NoteType
+} from '../../../shared/note'
+import { collectTags, formatDate, formatDateTime, type Ticket } from '../../../shared/ticket'
 import type { TagColors } from '../../../shared/tagColor'
-import { STATUS_LABELS } from '../labels'
+import { NOTE_TYPE_HINTS, NOTE_TYPE_LABELS, STATUS_LABELS } from '../labels'
 import { saveTagColor } from '../tagStyle'
 import { CommitInput } from './PropertyForm'
 import TagInput from './TagInput'
@@ -34,8 +41,21 @@ interface Props {
   homeworkItem: () => string | null
   /** ノートを AI に送り、タスクの候補を出してもらう */
   onSuggestTasks: (includeTranscript: boolean) => Promise<AiSuggestResult>
-  /** AI に送る本文の大きさと、「文字起こし」の節があるか */
-  noteBodyInfo: () => { bodyLength: number; hasTranscript: boolean }
+  /** AI に送る本文の大きさと、「文字起こし」「宿題」の節があるか */
+  noteBodyInfo: () => NoteBodyInfo
+  /** notes/ の下のフォルダ（移す先の候補） */
+  folders: string[]
+  /** ノートを別のフォルダに移す（空文字なら notes/ の直下） */
+  onMove: (folder: string) => void
+}
+
+/** 保存した本文の大きさと、決まった見出しがあるか */
+export interface NoteBodyInfo {
+  bodyLength: number
+  /** 「文字起こし」の節があるか */
+  hasTranscript: boolean
+  /** 「宿題」の見出しがあるか（あれば、起こしたチケットへのリンクを書き戻す） */
+  hasHomework: boolean
 }
 
 /** 「＋ ここからチケット」を押したときの初めの値 */
@@ -45,6 +65,8 @@ interface CreateDraft {
   homeworkItem: string | null
   /** 項目の「（高橋）」から拾った担当者 */
   assignee: string[]
+  /** ノートに「宿題」の見出しがあるか（なければ書き戻さない） */
+  hasHomework: boolean
 }
 
 /** 「＋ ここからチケット」のタイトルの入力欄 */
@@ -101,9 +123,11 @@ function CreateFromNote({
         やめる
       </button>
       <small>
-        {initial.homeworkItem
-          ? `作ると、「宿題」の「${initial.homeworkItem}」の行の最後に「→ チケットへのリンク」を付けます。`
-          : '作ると、このノートの「宿題」に「- タイトル → チケットへのリンク」を書き足します。'}
+        {!initial.hasHomework
+          ? '「宿題」の見出しがないノートなので、ノートには書き足しません（チケットの「元のノート」からこのノートに戻れます）。'
+          : initial.homeworkItem
+            ? `作ると、「宿題」の「${initial.homeworkItem}」の行の最後に「→ チケットへのリンク」を付けます。`
+            : '作ると、このノートの「宿題」に「- タイトル → チケットへのリンク」を書き足します。'}
         {initial.assignee.length > 0 && `担当者：${initial.assignee.join('、')}`}
       </small>
       {error && <p className="dialog-error">{error}</p>}
@@ -123,7 +147,9 @@ function NoteProperties({
   selectedText,
   homeworkItem,
   onSuggestTasks,
-  noteBodyInfo
+  noteBodyInfo,
+  folders,
+  onMove
 }: Props): React.JSX.Element {
   const allTags = useMemo(() => collectTags([...tickets, ...notes]), [tickets, notes])
   // 作成者の候補（これまでに入力された名前）
@@ -143,20 +169,76 @@ function NoteProperties({
   const modified = notes.find((n) => n.fileName === note.fileName)?.modified ?? null
   const fromNote = useMemo(() => ticketsFromNote(note, tickets), [note, tickets])
   /** AI に候補を出してもらう窓を開いているときの、本文の大きさ */
-  const [aiInfo, setAiInfo] = useState<{ bodyLength: number; hasTranscript: boolean } | null>(null)
+  const [aiInfo, setAiInfo] = useState<NoteBodyInfo | null>(null)
   /** 「＋ ここからチケット」の入力欄を開いているときの初めの値 */
   const [creating, setCreating] = useState<CreateDraft | null>(null)
+  // 移す先の候補。開いているノートのフォルダが一覧になくても（読み込みの途中など）選べるようにする
+  const folderOptions = useMemo(
+    () => [...new Set(['', ...folders, note.folder])].sort((a, b) => a.localeCompare(b, 'ja')),
+    [folders, note.folder]
+  )
 
   return (
     <div className="properties">
       <fieldset disabled={disabled}>
+        <label title={NOTE_TYPE_HINTS[note.type]}>
+          <span>種類</span>
+          <select
+            value={note.type}
+            onChange={(e) => {
+              const type = e.target.value as NoteType
+              // 知識にしたときに見直した日がなければ、今日を入れる（書いた時点で見直したとみなす）
+              const reviewed =
+                type === 'knowledge' && !note.reviewed ? { reviewed: formatDate(new Date()) } : {}
+              onChange({ type, ...reviewed })
+            }}
+          >
+            {NOTE_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {NOTE_TYPE_LABELS[t]}
+              </option>
+            ))}
+          </select>
+        </label>
         <label>
-          <span>会議などの日</span>
+          <span>日付</span>
           <input
             type="date"
             value={note.date ?? ''}
+            title="ノートの日付（会議の日、書いた日など）"
             onChange={(e) => onChange({ date: e.target.value || null })}
           />
+        </label>
+        {note.type === 'knowledge' && (
+          <div className="field wide">
+            <span>見直した日</span>
+            <span className="reviewed-field">
+              <input
+                type="date"
+                value={note.reviewed ?? ''}
+                title="中身が今も正しいかを最後に確かめた日"
+                onChange={(e) => onChange({ reviewed: e.target.value || null })}
+              />
+              <button
+                type="button"
+                className="ghost"
+                title="中身が今も正しいことを確かめたら押します"
+                onClick={() => onChange({ reviewed: formatDate(new Date()) })}
+              >
+                今日見直した
+              </button>
+            </span>
+          </div>
+        )}
+        <label title="notes/ の中のフォルダ。選ぶと、そのフォルダに移します">
+          <span>フォルダ</span>
+          <select value={note.folder} onChange={(e) => onMove(e.target.value)}>
+            {folderOptions.map((f) => (
+              <option key={f} value={f}>
+                {f === '' ? '（notes/ の直下）' : f}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           <span>作成者</span>
@@ -225,7 +307,8 @@ function NoteProperties({
                 title: selectedText() || parsed?.title || '',
                 // すでに「→」が付いている項目は、その行には付けず「宿題」の最後に行を足す
                 homeworkItem: item && !hasBackLink(item) ? item : null,
-                assignee: parsed?.assignees ?? []
+                assignee: parsed?.assignees ?? [],
+                hasHomework: noteBodyInfo().hasHomework
               })
             }}
           >
@@ -236,7 +319,7 @@ function NoteProperties({
           <button
             className="ghost from-note-add"
             disabled={disabled || !note.id}
-            title="このノートを AI（パソコンの Claude Code）に送り、タスクの候補を出してもらいます。選んでから作ります"
+            title="このノートを AI（パソコンの Claude Code か Cursor。設定で選ぶ）に送り、タスクの候補を出してもらいます。選んでから作ります"
             onClick={() => setAiInfo(noteBodyInfo())}
           >
             AI でタスクを起こす…
@@ -254,6 +337,7 @@ function NoteProperties({
         <AiTasksDialog
           bodyLength={aiInfo.bodyLength}
           hasTranscript={aiInfo.hasTranscript}
+          hasHomework={aiInfo.hasHomework}
           onSuggest={onSuggestTasks}
           onCancelSuggest={() => void window.api.cancelSuggestTasks()}
           // まとめて作るときは、作ったチケットを開かずにノートに留まる

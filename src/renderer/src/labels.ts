@@ -1,4 +1,19 @@
+import type { NoteType } from '../../shared/note'
 import type { Priority, SortDirection, SortKey, Status } from '../../shared/ticket'
+
+/** ノートの種類（RULES.md「ノートの書き方」の記録と知識、と入口） */
+export const NOTE_TYPE_LABELS: Record<NoteType, string> = {
+  record: '記録',
+  knowledge: '知識',
+  index: '入口'
+}
+
+/** ノートの種類の説明（選ぶ欄のヒントに出す） */
+export const NOTE_TYPE_HINTS: Record<NoteType, string> = {
+  record: 'その時に起きたこと（議事メモ・作業の記録など）。後から書き換えません',
+  knowledge: '今の正しい状態（手順・仕様・今の決まりなど）。変わったら書き換えます',
+  index: 'プロジェクトの入口（目的・今の状態・ノートの一覧）'
+}
 
 export const STATUS_LABELS: Record<Status, string> = {
   todo: '未着手',

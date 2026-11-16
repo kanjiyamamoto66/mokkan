@@ -17,17 +17,37 @@ import {
 export const NOTES_DIR = 'notes'
 /** ノートのキー（Note.fileName）の頭 */
 export const NOTES_PREFIX = `${NOTES_DIR}/`
+/** プロジェクトをまたぐ知識を置くフォルダ（notes/ の直下）。ここのノートから起こしたチケットには、フォルダ名のタグを付けない */
+export const COMMON_FOLDER = '共通'
+
+/**
+ * ノートの種類（frontmatter の `type`）
+ * - record：記録（議事メモ・作業の記録など。その時に起きたこと。書き換えない）
+ * - knowledge：知識（手順・仕様・今の決まりなど。今の正しい状態。変わったら書き換える）
+ * - index：入口（プロジェクトの目的・今の状態・ノートの一覧）
+ */
+export const NOTE_TYPES = ['record', 'knowledge', 'index'] as const
+export type NoteType = (typeof NOTE_TYPES)[number]
 
 export interface Note {
-  /** ノートを表すキー。`notes/ファイル名`（画面と裏方の間で、どのファイルかを指すのに使う） */
+  /**
+   * ノートを表すキー。`notes/ファイル名`、フォルダの中なら `notes/フォルダ/ファイル名`
+   * （画面と裏方の間で、どのファイルかを指すのに使う。区切りはいつも `/`）
+   */
   fileName: string
+  /** notes/ の中のフォルダ（`案件A/定例` など）。notes/ の直下なら空文字 */
+  folder: string
   /** ファイル名の先頭から読んだID。IDで始まらない名前なら null */
   fileId: string | null
   /** frontmatter の id */
   id: string | null
   title: string
-  /** 会議などの日 */
+  /** 種類。`type` がない・知らない値なら記録（record）として扱う */
+  type: NoteType
+  /** ノートの日付（会議の日、書いた日など） */
   date: string | null
+  /** 最後に見直した日（知識のノートで使う） */
+  reviewed: string | null
   tags: string[]
   author: string | null
   created: string | null
@@ -42,18 +62,88 @@ export function isNoteKey(key: string): boolean {
   return key.startsWith(NOTES_PREFIX)
 }
 
+/** ノートのキーを、notes/ の中のフォルダとファイル名に分ける */
+export function splitNoteKey(key: string): { folder: string; name: string } {
+  const rest = isNoteKey(key) ? key.slice(NOTES_PREFIX.length) : key
+  const at = rest.lastIndexOf('/')
+  return at < 0
+    ? { folder: '', name: rest }
+    : { folder: rest.slice(0, at), name: rest.slice(at + 1) }
+}
+
+/** フォルダとファイル名から、ノートのキーを作る */
+export function noteKey(folder: string, name: string): string {
+  return NOTES_PREFIX + (folder ? `${folder}/` : '') + name
+}
+
+/** フォルダの名前の長さの上限 */
+const MAX_FOLDER_NAME_LENGTH = 100
+
+/**
+ * フォルダの名前（1段分）として使えるか。使えなければ理由を返す
+ * Windows で使えない文字・制御文字・`.` で始まる名前（隠しフォルダとして無視するため）・最後の空白とピリオドは使えない
+ */
+export function folderNameError(name: string): string | null {
+  if (name.trim() === '') return 'フォルダの名前を入れてください'
+  // eslint-disable-next-line no-control-regex
+  if (/[\\/:*?"<>|\u0000-\u001f\u007f]/.test(name)) {
+    return 'フォルダの名前に \\ / : * ? " < > | と改行などは使えません'
+  }
+  if (name.startsWith('.')) return 'フォルダの名前を「.」で始めることはできません'
+  if (/[ .]$/.test(name) || name !== name.trim()) {
+    return 'フォルダの名前の前後に空白、最後にピリオドは使えません'
+  }
+  if (name.length > MAX_FOLDER_NAME_LENGTH) {
+    return `フォルダの名前は${MAX_FOLDER_NAME_LENGTH}文字までにしてください`
+  }
+  return null
+}
+
+/**
+ * notes/ の中のフォルダ（`案件A/定例` など。空文字は notes/ の直下）として読んでよい形か
+ * notes/ の外を指さない（`..` や区切り文字を含まない）・隠しフォルダ（`.` で始まる）でないことだけを確かめる
+ * （エクスプローラーや AI が作ったフォルダも読むので、作るときの決まり `folderNameError` より緩い）
+ */
+export function isSafeNoteFolder(folder: string): boolean {
+  return (
+    folder === '' ||
+    folder
+      .split('/')
+      // eslint-disable-next-line no-control-regex
+      .every((part) => part !== '' && !part.startsWith('.') && !/[\\:\u0000-\u001f]/.test(part))
+  )
+}
+
+/** そのフォルダか、その下のフォルダか（folder が空文字なら、すべて） */
+export function isInFolder(noteFolder: string, folder: string): boolean {
+  return folder === '' || noteFolder === folder || noteFolder.startsWith(`${folder}/`)
+}
+
+/** ノートから起こしたチケットに付ける、プロジェクトのタグ（notes/ の直下のフォルダ名）。共通/ と直下のノートは null */
+export function projectTag(folder: string): string | null {
+  const top = folder.split('/')[0]
+  return top === '' || top === COMMON_FOLDER ? null : top
+}
+
+function asNoteType(value: unknown): NoteType {
+  return NOTE_TYPES.find((t) => t === value) ?? 'record'
+}
+
 /**
  * キーと中身からノートを読み取る。書き換えは一切しない
- * @param key `notes/ファイル名`（ファイル名だけでもよい）
+ * @param key `notes/ファイル名`・`notes/フォルダ/ファイル名`（ファイル名だけでもよい）
  */
 export function parseNote(key: string, text: string): Note {
-  const name = isNoteKey(key) ? key.slice(NOTES_PREFIX.length) : key
+  const { folder, name } = splitNoteKey(key)
   const note: Note = {
-    fileName: isNoteKey(key) ? key : NOTES_PREFIX + key,
+    fileName: noteKey(folder, name),
+    folder,
     fileId: idFromFileName(name),
     id: null,
     title: '',
+    type: 'record',
     date: null,
+    reviewed: null,
     tags: [],
     author: null,
     created: null,
@@ -84,7 +174,9 @@ export function parseNote(key: string, text: string): Note {
 
   const fm = data as Record<string, unknown>
   note.id = asString(fm.id)
+  note.type = asNoteType(fm.type)
   note.date = asString(fm.date)
+  note.reviewed = asString(fm.reviewed)
   note.tags = asTags(fm.tags)
   note.author = asString(fm.author)
   note.created = asString(fm.created)
@@ -96,13 +188,25 @@ export function noteDate(note: Note): string | null {
   return validDate(note.date) ?? validDate(note.created)
 }
 
+/** ノートの一覧の絞り込み（タグはほかの画面と共通） */
+export interface NoteFilter {
+  /** タグ。空なら絞り込まない */
+  tags: string[]
+  /** フォルダ（その下のフォルダも含む）。空文字ならすべて */
+  folder: string
+  /** 種類。空なら絞り込まない */
+  types: NoteType[]
+}
+
 /**
  * ノートの一覧に出すノートを返す。日付の新しい順（日付のないものは最後）、同じ日は ID の新しい順
- * @param tags タグの絞り込み（一覧・カレンダー・ガントと共通）。空なら絞り込まない
  */
-export function listNotes(notes: Note[], tags: string[]): Note[] {
+export function listNotes(notes: Note[], filter: Partial<NoteFilter> = {}): Note[] {
+  const { tags = [], folder = '', types = [] } = filter
   return notes
     .filter((n) => tags.length === 0 || n.tags.some((t) => tags.includes(t)))
+    .filter((n) => isInFolder(n.folder, folder))
+    .filter((n) => types.length === 0 || types.includes(n.type))
     .sort((a, b) => {
       const da = noteDate(a)
       const db = noteDate(b)
@@ -149,6 +253,16 @@ function headings(lines: string[]): HeadingLine[] {
     if (match) result.push({ index, level: match[1].length, text: match[2].trim() })
   })
   return result
+}
+
+/**
+ * 本文に「宿題」の見出しがあるか（コードブロックの中は除く）
+ * ノートから起こしたチケットへのリンクを書き戻すのは、「宿題」の見出しがあるノートだけ
+ * （知識のノートなどに、チケットへのリンクが書き足されないように）
+ */
+export function hasHomeworkHeading(text: string): boolean {
+  const body = splitFrontmatter(text)?.body ?? text
+  return headings(body.split('\n').map((l) => l.replace(/\r$/, ''))).some((h) => h.text === '宿題')
 }
 
 /** 「宿題」の項目に付け足した「→ チケットへのリンク」があるか（`→ ID` と `→ [ID](…)` のどちらも） */
@@ -232,7 +346,7 @@ export function attachHomework(text: string, itemText: string, suffix: string): 
 }
 
 /**
- * ノートの「宿題」の最後に、箇条書きの1行（`- item`）を足す（RULES.md「議事メモからタスクを起こす」）
+ * ノートの「宿題」の最後に、箇条書きの1行（`- item`）を足す（RULES.md「ノートからタスクを起こす」）
  * - 「宿題」の見出しがなければ、「文字起こし」の見出しの前（なければ本文の最後）に見出しごと足す
  * - 足した行のほかは1文字も変えない（本文の最後に足すときだけ、末尾の空行を1つにまとめる）
  */

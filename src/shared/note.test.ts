@@ -5,11 +5,18 @@ import { NOTE_FIELD_ORDER, setFields } from './frontmatter'
 import {
   appendHomework,
   attachHomework,
+  folderNameError,
   hasBackLink,
+  hasHomeworkHeading,
+  isInFolder,
+  isSafeNoteFolder,
   listNotes,
+  noteKey,
   parseHomeworkItem,
   parseNote,
   plainListItem,
+  projectTag,
+  splitNoteKey,
   ticketsFromNote,
   type Note
 } from './note'
@@ -39,9 +46,12 @@ created: 2026-10-20
 function note(partial: Partial<Note> & { id: string }): Note {
   return {
     fileName: `notes/${partial.id}.md`,
+    folder: '',
     fileId: partial.id,
     title: '',
+    type: 'record',
     date: null,
+    reviewed: null,
     tags: [],
     author: null,
     created: null,
@@ -55,10 +65,13 @@ describe('parseNote', () => {
   it('frontmatter とタイトルを読む', () => {
     expect(parseNote('notes/20261019-1400-m3k8_A社定例.md', meeting)).toEqual({
       fileName: 'notes/20261019-1400-m3k8_A社定例.md',
+      folder: '',
       fileId: '20261019-1400-m3k8',
       id: '20261019-1400-m3k8',
       title: 'A社定例',
+      type: 'record',
       date: '2026-10-19',
+      reviewed: null,
       tags: ['A社', '定例'],
       author: '山田',
       created: '2026-10-20',
@@ -109,7 +122,7 @@ describe('listNotes', () => {
   ]
 
   it('日付の新しい順（date がなければ created）、同じ日は ID の新しい順。日付のないものは最後', () => {
-    expect(listNotes(notes, []).map((n) => n.id)).toEqual([
+    expect(listNotes(notes).map((n) => n.id)).toEqual([
       '20261020-0900-bbbb',
       '20261019-1000-dddd',
       '20261019-0900-cccc',
@@ -119,10 +132,96 @@ describe('listNotes', () => {
   })
 
   it('タグで絞り込む', () => {
-    expect(listNotes(notes, ['A社', 'B社']).map((n) => n.id)).toEqual([
+    expect(listNotes(notes, { tags: ['A社', 'B社'] }).map((n) => n.id)).toEqual([
       '20261019-0900-cccc',
       '20261001-0900-aaaa'
     ])
+  })
+
+  it('フォルダ（その下のフォルダも含む）と種類で絞り込む', () => {
+    const inFolders = [
+      note({ id: '20261001-0900-aaaa', folder: '案件A', type: 'knowledge' }),
+      note({ id: '20261002-0900-bbbb', folder: '案件A/定例' }),
+      note({ id: '20261003-0900-cccc', folder: '案件AB' }),
+      note({ id: '20261004-0900-dddd', folder: '', type: 'index' })
+    ]
+    const ids = (filter: Parameters<typeof listNotes>[1]): (string | null)[] =>
+      listNotes(inFolders, filter).map((n) => n.id)
+    expect(ids({ folder: '案件A' })).toEqual(['20261002-0900-bbbb', '20261001-0900-aaaa'])
+    expect(ids({ folder: '案件A/定例' })).toEqual(['20261002-0900-bbbb'])
+    expect(ids({ folder: '' })).toHaveLength(4)
+    expect(ids({ types: ['knowledge', 'index'] })).toEqual([
+      '20261004-0900-dddd',
+      '20261001-0900-aaaa'
+    ])
+  })
+})
+
+describe('ノートの種類とフォルダ', () => {
+  it('type と reviewed を読む。type がない・知らない値なら記録として扱う', () => {
+    const fm = (lines: string): string => `---\nid: 20261019-1400-m3k8\n${lines}\n---\n\n# x\n`
+    expect(parseNote('notes/a.md', fm('type: knowledge\nreviewed: 2026-11-09'))).toMatchObject({
+      type: 'knowledge',
+      reviewed: '2026-11-09'
+    })
+    expect(parseNote('notes/a.md', fm('type: index')).type).toBe('index')
+    expect(parseNote('notes/a.md', fm('date: 2026-10-19')).type).toBe('record')
+    expect(parseNote('notes/a.md', fm('type: memo')).type).toBe('record')
+  })
+
+  it('キーからフォルダを読む', () => {
+    expect(parseNote('notes/案件A/定例/20261019-1400-m3k8.md', meeting)).toMatchObject({
+      fileName: 'notes/案件A/定例/20261019-1400-m3k8.md',
+      folder: '案件A/定例',
+      fileId: '20261019-1400-m3k8'
+    })
+    expect(splitNoteKey('notes/a.md')).toEqual({ folder: '', name: 'a.md' })
+    expect(noteKey('案件A', 'a.md')).toBe('notes/案件A/a.md')
+    expect(noteKey('', 'a.md')).toBe('notes/a.md')
+  })
+
+  it('notes/ の外や隠しフォルダを指すフォルダは読まない', () => {
+    expect(isSafeNoteFolder('')).toBe(true)
+    expect(isSafeNoteFolder('案件A/定例')).toBe(true)
+    expect(isSafeNoteFolder('..')).toBe(false)
+    expect(isSafeNoteFolder('案件A/../x')).toBe(false)
+    expect(isSafeNoteFolder('案件A//x')).toBe(false)
+    expect(isSafeNoteFolder('.sync')).toBe(false)
+    expect(isSafeNoteFolder('a\\b')).toBe(false)
+  })
+
+  it('作るフォルダの名前の決まり', () => {
+    expect(folderNameError('案件A')).toBeNull()
+    expect(folderNameError('')).toContain('入れて')
+    expect(folderNameError('a/b')).toContain('使えません')
+    expect(folderNameError('a:b')).toContain('使えません')
+    expect(folderNameError('.hidden')).toContain('「.」')
+    expect(folderNameError('案件A.')).toContain('ピリオド')
+    expect(folderNameError(' 案件A')).toContain('空白')
+    expect(folderNameError('あ'.repeat(101))).toContain('100文字')
+  })
+
+  it('isInFolder：同じフォルダかその下だけ（名前の頭が同じだけのフォルダは含めない）', () => {
+    expect(isInFolder('案件A', '')).toBe(true)
+    expect(isInFolder('案件A', '案件A')).toBe(true)
+    expect(isInFolder('案件A/定例', '案件A')).toBe(true)
+    expect(isInFolder('案件AB', '案件A')).toBe(false)
+    expect(isInFolder('', '案件A')).toBe(false)
+  })
+
+  it('projectTag：notes/ の直下のフォルダ名。共通/ と直下のノートは null', () => {
+    expect(projectTag('案件A/定例')).toBe('案件A')
+    expect(projectTag('案件A')).toBe('案件A')
+    expect(projectTag('共通')).toBeNull()
+    expect(projectTag('共通/手順')).toBeNull()
+    expect(projectTag('')).toBeNull()
+  })
+
+  it('hasHomeworkHeading：「宿題」の見出しがあるか（コードブロックの中は除く）', () => {
+    expect(hasHomeworkHeading(meeting)).toBe(true)
+    expect(hasHomeworkHeading('---\nid: a\n---\n\n# 手順\n\n## 前提\n')).toBe(false)
+    expect(hasHomeworkHeading('---\nid: a\n---\n\n```\n## 宿題\n```\n')).toBe(false)
+    expect(hasHomeworkHeading('---\r\nid: a\r\n---\r\n\r\n### 宿題\r\n')).toBe(true)
   })
 })
 

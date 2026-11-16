@@ -4,8 +4,27 @@ import {
   linkCandidates,
   markdownLinkDestination,
   normalizeForSearch,
-  relativeLinkPath
+  relativeLinkPath,
+  resolveLinkPath,
+  tasksPathOf
 } from './links'
+
+describe('tasksPathOf と resolveLinkPath', () => {
+  it('キーを tasks/ からのパスにする', () => {
+    expect(tasksPathOf('20261101-0900-t001.md')).toBe('tickets/20261101-0900-t001.md')
+    expect(tasksPathOf('archive/20261101-0900-t001.md')).toBe('archive/20261101-0900-t001.md')
+    expect(tasksPathOf('notes/A社/x.md')).toBe('notes/A社/x.md')
+  })
+
+  it('リンク先を、書いたファイルのフォルダから読む', () => {
+    expect(resolveLinkPath('notes/A社/x.md', '../../tickets/y.md')).toBe('tickets/y.md')
+    expect(resolveLinkPath('notes/A社/x.md', './y.md#見出し')).toBe('notes/A社/y.md')
+    expect(resolveLinkPath('t.md', '../notes/%E5%85%B1%E9%80%9A/y.md?a')).toBe('notes/共通/y.md')
+    expect(resolveLinkPath('t.md', '../../y.md')).toBeNull()
+    expect(resolveLinkPath('t.md', '/y.md')).toBeNull()
+    expect(resolveLinkPath('t.md', 'https://example.com/y.md')).toBeNull()
+  })
+})
 
 describe('relativeLinkPath', () => {
   it('同じフォルダならファイル名だけ、違えば ../フォルダ/ファイル名', () => {
@@ -14,6 +33,15 @@ describe('relativeLinkPath', () => {
     expect(relativeLinkPath('a.md', 'notes/n_定例.md')).toBe('../notes/n_定例.md')
     expect(relativeLinkPath('archive/x.md', 'archive/y.md')).toBe('y.md')
     expect(relativeLinkPath('notes/n.md', 'archive/y.md')).toBe('../archive/y.md')
+  })
+
+  it('notes/ の中のフォルダの深さに合わせて ../ を重ねる', () => {
+    expect(relativeLinkPath('notes/案件A/定例/n.md', 'b.md')).toBe('../../../tickets/b.md')
+    expect(relativeLinkPath('notes/案件A/n.md', 'notes/案件A/m.md')).toBe('m.md')
+    expect(relativeLinkPath('notes/案件A/n.md', 'notes/共通/m.md')).toBe('../共通/m.md')
+    expect(relativeLinkPath('notes/n.md', 'notes/案件A/定例/m.md')).toBe('案件A/定例/m.md')
+    expect(relativeLinkPath('notes/案件A/定例/n.md', 'notes/m.md')).toBe('../../m.md')
+    expect(relativeLinkPath('a.md', 'notes/案件A/m.md')).toBe('../notes/案件A/m.md')
   })
 })
 

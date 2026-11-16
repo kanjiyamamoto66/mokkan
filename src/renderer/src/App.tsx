@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { AppState, Onboarding } from '../../shared/api'
+import type { AppState, Onboarding, TemplateKind, TemplateList } from '../../shared/api'
 import {
   DEFAULT_FILTER,
   DEFAULT_SORT,
@@ -11,7 +11,7 @@ import {
   type ListFilter,
   type ListSort
 } from '../../shared/ticket'
-import { listNotes } from '../../shared/note'
+import { listNotes, type NoteType } from '../../shared/note'
 import { calendarItems, ganttRows, type GanttGrouping } from '../../shared/schedule'
 import CalendarView from './components/CalendarView'
 import FilterBar from './components/FilterBar'
@@ -23,6 +23,9 @@ import ArchiveDialog from './components/ArchiveDialog'
 import TicketEditor from './components/TicketEditor'
 import { afterClose } from './editor/closing'
 import NoteList from './components/NoteList'
+import NoteLintPanel from './components/NoteLintPanel'
+import NoteFolderTree from './components/NoteFolderTree'
+import NewButton from './components/NewButton'
 import TicketList from './components/TicketList'
 import WarningList from './components/WarningList'
 
@@ -153,12 +156,53 @@ function App(): React.JSX.Element {
     setSelected(next)
   }, [])
 
+  /** ノートの画面の左の木で選んでいるフォルダ（空文字ならすべて）と、種類の絞り込み */
+  const [noteFolder, setNoteFolder] = useState('')
+  const [noteTypes, setNoteTypes] = useState<NoteType[]>([])
+  /** ノートの画面で、一覧の代わりに点検の結果を出しているか */
+  const [lintOpen, setLintOpen] = useState(false)
+
+  /** tasks/templates/ のテンプレートと、前回選んだもの（個人設定。null なら標準） */
+  const [templates, setTemplates] = useState<TemplateList>({ tickets: [], notes: [] })
+  const [choice, setChoice] = useState<Record<TemplateKind, string | null>>({
+    ticket: null,
+    note: null
+  })
+  const loadTemplates = useCallback(() => {
+    window.api
+      .listTemplates()
+      .then((list) => {
+        setTemplates(list)
+        // 前回選んだテンプレートがなくなっていたら、標準に戻す
+        setChoice((c) => ({
+          ticket: c.ticket && list.tickets.includes(c.ticket) ? c.ticket : null,
+          note: c.note && list.notes.includes(c.note) ? c.note : null
+        }))
+      })
+      .catch((e) => console.error('[mokkan] テンプレートを読めませんでした', e))
+  }, [])
+  useEffect(() => {
+    if (!folderReady) return
+    Promise.all([window.api.getTemplateChoice('ticket'), window.api.getTemplateChoice('note')])
+      .then(([ticket, note]) => setChoice({ ticket, note }))
+      .then(loadTemplates)
+      .catch((e) => console.error('[mokkan] テンプレートの設定を読めませんでした', e))
+  }, [folderReady, loadTemplates])
+  /** 選んだテンプレートを次からの既定にする */
+  const rememberChoice = useCallback((kind: TemplateKind, name: string | null) => {
+    setChoice((c) => ({ ...c, [kind]: name }))
+    window.api
+      .setTemplateChoice(kind, name)
+      .catch((e) => console.error('[mokkan] テンプレートの設定を保存できませんでした', e))
+  }, [])
+
   const createTicket = useCallback(
-    () =>
+    (template: string | null) =>
       run(async () => {
         // 絞り込みでタグを1つだけ選んでいるときは、そのタグを初めの値にする
         const { fileName } = await window.api.createTicket(
-          filter.tags.length === 1 ? filter.tags : []
+          filter.tags.length === 1 ? filter.tags : [],
+          template
         )
         select({ fileName, isNew: true })
       }),
@@ -166,15 +210,37 @@ function App(): React.JSX.Element {
   )
 
   const createNote = useCallback(
-    () =>
+    (template: string | null) =>
       run(async () => {
-        const { fileName } = await window.api.createNote()
+        // 左の木で選んでいるフォルダに作る（なくなっていたら notes/ の直下）
+        const folder = state?.noteFolders.includes(noteFolder) ? noteFolder : ''
+        const { fileName } = await window.api.createNote({ template, folder })
         select({ fileName, isNew: true })
       }),
-    [run, select]
+    [run, select, noteFolder, state]
   )
   /** 「＋ 新規」と Ctrl+N で作るもの。ノートの画面ではノート、ほかの画面ではチケット */
-  const createNew = view === 'notes' ? createNote : createTicket
+  const newKind: TemplateKind = view === 'notes' ? 'note' : 'ticket'
+  const createWith = useCallback(
+    (template: string | null) => {
+      if (template !== choice[newKind]) rememberChoice(newKind, template)
+      return newKind === 'note' ? createNote(template) : createTicket(template)
+    },
+    [newKind, choice, rememberChoice, createNote, createTicket]
+  )
+  const createNew = useCallback(() => createWith(choice[newKind]), [createWith, choice, newKind])
+
+  const createNoteFolder = useCallback(
+    async (parent: string, name: string): Promise<string | null> => {
+      try {
+        setNoteFolder(await window.api.createNoteFolder(parent, name))
+        return null
+      } catch (e) {
+        return (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+      }
+    },
+    []
+  )
 
   /** アーカイブ・戻すでファイルを移したら、開いているチケットを移した先に切り替える */
   const applyMoved = useCallback((moved: Record<string, string>) => {
@@ -238,9 +304,18 @@ function App(): React.JSX.Element {
     [tickets, filter, today, sort]
   )
   const notes = useMemo(() => state?.notes ?? [], [state])
+  const noteFolders = useMemo(() => state?.noteFolders ?? [], [state])
+  // 選んでいたフォルダがなくなったら（外部で消した・名前を変えたなど）、すべてを出す
+  const activeFolder = noteFolders.includes(noteFolder) ? noteFolder : ''
+  // 木の件数は、フォルダのほかの絞り込み（タグ・種類）をかけたもので数える
+  const notesForTree = useMemo(
+    () =>
+      view === 'notes' ? listNotes(notes, { tags: filter.tags, folder: '', types: noteTypes }) : [],
+    [view, notes, filter.tags, noteTypes]
+  )
   const visibleNotes = useMemo(
-    () => (view === 'notes' ? listNotes(notes, filter.tags) : []),
-    [view, notes, filter.tags]
+    () => listNotes(notesForTree, { tags: [], folder: activeFolder, types: [] }),
+    [notesForTree, activeFolder]
   )
   // タグの絞り込みは全画面で共通なので、ノートのタグも選べるようにする
   const tags = useMemo(() => collectTags([...tickets, ...notes]), [tickets, notes])
@@ -348,9 +423,14 @@ function App(): React.JSX.Element {
         >
           設定
         </button>
-        <button className="primary" disabled={!ready} onClick={createNew}>
-          {view === 'notes' ? '＋ 新規ノート' : '＋ 新規'} <kbd>Ctrl+N</kbd>
-        </button>
+        <NewButton
+          label={view === 'notes' ? '＋ 新規ノート' : '＋ 新規'}
+          disabled={!ready}
+          choice={choice[newKind]}
+          templates={newKind === 'note' ? templates.notes : templates.tickets}
+          onOpenMenu={loadTemplates}
+          onCreate={(template) => void createWith(template)}
+        />
       </header>
 
       {error && (
@@ -393,20 +473,34 @@ function App(): React.JSX.Element {
 
       {ready ? (
         <div className={['panes', `view-${view}`, selected ? 'with-editor' : ''].join(' ')}>
+          {view === 'notes' && (
+            <NoteFolderTree
+              folders={noteFolders}
+              notes={notesForTree}
+              selected={activeFolder}
+              onSelect={setNoteFolder}
+              types={noteTypes}
+              onTypesChange={setNoteTypes}
+              onCreateFolder={createNoteFolder}
+            />
+          )}
           <main className="main">
             <WarningList warnings={warnings} onOpen={open} />
-            <FilterBar
-              filter={filter}
-              tags={tags}
-              assignees={assignees}
-              userName={userName}
-              showFutureStartOption={view === 'list'}
-              sort={view === 'list' ? sort : undefined}
-              onSortChange={changeSort}
-              onChange={setFilter}
-              tagsOnly={view === 'notes'}
-              tagColors={tagColors}
-            />
+            {/* 点検はすべてのノートを見るので、絞り込みは出さない */}
+            {!(view === 'notes' && lintOpen) && (
+              <FilterBar
+                filter={filter}
+                tags={tags}
+                assignees={assignees}
+                userName={userName}
+                showFutureStartOption={view === 'list'}
+                sort={view === 'list' ? sort : undefined}
+                onSortChange={changeSort}
+                onChange={setFilter}
+                tagsOnly={view === 'notes'}
+                tagColors={tagColors}
+              />
+            )}
             {view === 'list' && (
               <>
                 <TicketList
@@ -432,11 +526,23 @@ function App(): React.JSX.Element {
                 </footer>
               </>
             )}
-            {view === 'notes' && (
+            {view === 'notes' && lintOpen && (
+              <NoteLintPanel
+                stamp={state}
+                onOpen={open}
+                onSelectFolder={(folder) => {
+                  setNoteFolder(folder)
+                  setLintOpen(false)
+                }}
+                onClose={() => setLintOpen(false)}
+              />
+            )}
+            {view === 'notes' && !lintOpen && (
               <>
                 <NoteList
                   notes={visibleNotes}
                   tickets={tickets}
+                  folder={activeFolder}
                   selected={selected?.fileName ?? null}
                   tagColors={tagColors}
                   onOpen={open}
@@ -445,6 +551,13 @@ function App(): React.JSX.Element {
                   <span>
                     {visibleNotes.length} 件を表示中（全 {notes.length} 件）
                   </span>
+                  <button
+                    className="ghost"
+                    onClick={() => setLintOpen(true)}
+                    title="切れたリンク・見直していない知識・入口から外れた知識などを探します"
+                  >
+                    点検…
+                  </button>
                 </footer>
               </>
             )}
@@ -478,6 +591,7 @@ function App(): React.JSX.Element {
               isNew={selected.isNew}
               tickets={tickets}
               notes={notes}
+              noteFolders={noteFolders}
               tagColors={tagColors}
               onOpen={open}
               onBack={backTarget ? goBack : undefined}

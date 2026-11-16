@@ -3,6 +3,8 @@
 import { app } from 'electron'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { DEFAULT_AI_SERVICE, asAiService, type AiService } from '../shared/aiService'
+import type { TemplateKind } from '../shared/api'
 import { asListSort, type ListSort } from '../shared/ticket'
 
 interface Settings {
@@ -10,6 +12,8 @@ interface Settings {
   listSort?: unknown
   userName?: unknown
   lastVersion?: unknown
+  templateChoice?: unknown
+  aiService?: unknown
 }
 
 function settingsPath(): string {
@@ -74,4 +78,30 @@ export function getLastVersion(): string | null {
 
 export function saveLastVersion(version: string): void {
   writeSettings({ lastVersion: version })
+}
+
+function templateChoices(): Partial<Record<TemplateKind, string>> {
+  const saved = readSettings().templateChoice
+  return saved && typeof saved === 'object' && !Array.isArray(saved)
+    ? (saved as Partial<Record<TemplateKind, string>>)
+    : {}
+}
+
+/** 前回選んだテンプレートの名前（新規作成の既定にする）。既定のテンプレートなら null */
+export function getTemplateChoice(kind: TemplateKind): string | null {
+  const name = templateChoices()[kind]
+  return typeof name === 'string' && name !== '' ? name : null
+}
+
+export function saveTemplateChoice(kind: TemplateKind, name: string | null): void {
+  writeSettings({ templateChoice: { ...templateChoices(), [kind]: name ?? '' } })
+}
+
+/** 「AI でタスクを起こす」で使う AI。設定していない・知らない値なら Claude Code */
+export function getAiService(): AiService {
+  return asAiService(readSettings().aiService) ?? DEFAULT_AI_SERVICE
+}
+
+export function saveAiService(service: AiService): void {
+  writeSettings({ aiService: service })
 }

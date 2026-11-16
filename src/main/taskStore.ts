@@ -5,14 +5,18 @@ import { watch, type FSWatcher } from 'chokidar'
 import { randomInt } from 'node:crypto'
 import { existsSync, statSync } from 'node:fs'
 import { mkdir, readdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { parse } from 'yaml'
 import type {
   AppState,
+  CreateNoteRequest,
   FolderStatus,
   FromNoteResult,
   RepeatResult,
   RuleFileStatus,
-  SaveResult
+  SaveResult,
+  TemplateKind,
+  TemplateList
 } from '../shared/api'
 import {
   ARCHIVE_DIR,
@@ -28,14 +32,28 @@ import {
   setFields,
   type FieldUpdates
 } from '../shared/frontmatter'
-import { markdownLinkDestination, relativeLinkPath } from '../shared/links'
 import {
+  backlinksOf,
+  lintFiles,
+  replaceLinkDestination,
+  type Backlink,
+  type LintEntry,
+  type LintItem
+} from '../shared/lint'
+import { idFromHref, markdownLinkDestination, relativeLinkPath } from '../shared/links'
+import {
+  COMMON_FOLDER,
   NOTES_DIR,
-  NOTES_PREFIX,
   appendHomework,
   attachHomework,
+  folderNameError,
+  hasHomeworkHeading,
   isNoteKey,
+  isSafeNoteFolder,
+  noteKey,
   parseNote,
+  projectTag,
+  splitNoteKey,
   type Note
 } from '../shared/note'
 import { buildNextTicket, findExistingNext, nextSchedule, withTitle } from '../shared/repeat'
@@ -69,11 +87,18 @@ import bundledRules from '../../templates/RULES.md?raw'
 import bundledTemplate from '../../templates/TEMPLATE.md?raw'
 import bundledNoteTemplate from '../../templates/NOTE_TEMPLATE.md?raw'
 import bundledAiGuide from '../../templates/AI_GUIDE.md?raw'
+import sampleMeeting from '../../templates/samples/notes/meeting.md?raw'
+import sampleHowto from '../../templates/samples/notes/howto.md?raw'
+import sampleReference from '../../templates/samples/notes/reference.md?raw'
+import sampleExplanation from '../../templates/samples/notes/explanation.md?raw'
+import sampleIndex from '../../templates/samples/notes/index.md?raw'
 
 /** 監視で拾った変更をまとめて画面に送るまでの待ち時間 */
 const EMIT_DELAY_MS = 50
 /** 検索で返す件数の上限 */
 const MAX_SEARCH_HITS = 50
+/** notes/ の下のフォルダを読む深さ（notes/ から何段まで。より深いフォルダのノートは読まない） */
+export const MAX_NOTE_FOLDER_DEPTH = 9
 /** ID が重なったときに作り直す回数の上限 */
 const MAX_CREATE_ATTEMPTS = 10
 
@@ -101,6 +126,60 @@ export const RULE_FILES: ReadonlyArray<{ name: string; content: string }> = [
   { name: 'AGENTS.md', content: bundledAiGuide }
 ]
 
+/** テンプレートを置くフォルダ（tasks/ の中）と、その中の種類ごとのフォルダ */
+export const TEMPLATES_DIR = 'templates'
+const TEMPLATE_SUBDIRS: Record<TemplateKind, string> = { ticket: 'tickets', note: 'notes' }
+
+/**
+ * アプリが置くテンプレートの見本（tasks/ からのパス）。ないときだけ置き、すでにあるファイルには触れない
+ * 手で直しても「原本と違う」にはしない（自分の使い方に合わせて直してもらうものなので）
+ */
+export const SAMPLE_TEMPLATES: ReadonlyArray<{ name: string; content: string }> = [
+  { name: `${TEMPLATES_DIR}/notes/議事メモ.md`, content: sampleMeeting },
+  { name: `${TEMPLATES_DIR}/notes/手順.md`, content: sampleHowto },
+  { name: `${TEMPLATES_DIR}/notes/参照.md`, content: sampleReference },
+  { name: `${TEMPLATES_DIR}/notes/解説.md`, content: sampleExplanation },
+  { name: `${TEMPLATES_DIR}/notes/入口.md`, content: sampleIndex }
+]
+
+/** テンプレートの名前（ファイル名から .md を除いたもの）として読むファイルか */
+function templateNameOf(fileName: string): string | null {
+  return isTicketFileName(fileName) ? fileName.slice(0, -'.md'.length) : null
+}
+
+/**
+ * テンプレートを埋めた中身の、まだ値のない項目にだけ初めの値を入れる
+ * （テンプレートに値が書いてある項目は、テンプレートの値のまま。タグは両方を合わせる）
+ */
+function setDefaultsWhereEmpty(
+  text: string,
+  defaults: FieldUpdates,
+  order?: Parameters<typeof setFields>[2]
+): string {
+  let current: Record<string, unknown> = {}
+  try {
+    const parsed = parse(splitFrontmatter(text)?.frontmatter ?? '')
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) current = parsed
+  } catch {
+    // 読めない frontmatter なら、初めの値をそのまま入れる
+  }
+  const empty = (v: unknown): boolean =>
+    v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0)
+  const updates: FieldUpdates = {}
+  for (const [key, value] of Object.entries(defaults) as [
+    keyof FieldUpdates,
+    FieldUpdates[keyof FieldUpdates]
+  ][]) {
+    const now = current[key]
+    if (key === 'tags' && Array.isArray(value) && Array.isArray(now) && now.length > 0) {
+      updates.tags = [...new Set([...now.map(String), ...value])]
+    } else if (empty(now)) {
+      updates[key] = value
+    }
+  }
+  return setFields(text, updates, order)
+}
+
 /** ノートからチケットを起こすときの、タイトルのほかの値 */
 export interface FromNoteOptions {
   /** 「宿題」の項目の文（その行の最後に「→ リンク」を付ける） */
@@ -123,6 +202,8 @@ export class TaskStore {
   private readonly notesDir: string | null
   private readonly tickets = new Map<string, Ticket>()
   private readonly notes = new Map<string, Note>()
+  /** notes/ の下のフォルダ（`案件A/定例` の形。空のフォルダも含む） */
+  private readonly noteFolders = new Set<string>()
   private watcher: FSWatcher | null = null
   private emitTimer: NodeJS.Timeout | null = null
   private folderStatus: FolderStatus = 'unset'
@@ -158,6 +239,7 @@ export class TaskStore {
       folderStatus: this.folderStatus,
       tickets,
       notes,
+      noteFolders: [...this.noteFolders].sort((a, b) => a.localeCompare(b, 'ja')),
       tagColors: { ...this.tagColors },
       tagFile: { error: this.tagFileError, conflicts: [...this.tagConflicts].sort() },
       renamedOnStart: this.renamedOnStart
@@ -170,17 +252,23 @@ export class TaskStore {
     if (this.folderStatus !== 'ready' || !this.ticketsDir) return
 
     // 監視の準備ができてから全件を読む。逆の順だと、その間に起きた変更を取りこぼす
-    // tickets/・archive/・notes/ を監視する（archive/ と notes/ は後から作られることがあるので、tasks/ から1段下まで見る）
+    // tickets/・archive/ の直下と、notes/ の下（フォルダの中も）を監視する
+    // （archive/ と notes/ は後から作られることがあるので、tasks/ から監視し、ほかのフォルダは ignored で除く）
     const root = this.root!
     const dirs = new Set([root, this.ticketsDir, this.archiveDir, this.notesDir])
     this.watcher = watch(root, {
       ignoreInitial: true,
-      depth: 1,
+      // tasks/ → notes/ → フォルダ（MAX_NOTE_FOLDER_DEPTH 段）の中のファイルまで。
+      // 深さを決めないと（chokidar の既定は無制限）、Windows で変更の通知が数秒遅れることがあった
+      depth: MAX_NOTE_FOLDER_DEPTH + 1,
       // 同期サービスやエディタが書き込み途中のファイルを読まないよう、落ち着くまで待つ
       awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
       // chokidar は Windows でも `C:/...` の形でパスを渡すので、正規化してから比べる
       ignored: (path) =>
-        !dirs.has(resolve(path)) && this.keyOf(path) === null && !this.isTagsPath(path)
+        !dirs.has(resolve(path)) &&
+        this.noteFolderOf(path) === null &&
+        this.keyOf(path) === null &&
+        !this.isTagsPath(path)
     })
     this.watcher
       .on('add', (path) => void this.loadAny(path).then(() => this.scheduleEmit()))
@@ -191,10 +279,31 @@ export class TaskStore {
         const done = this.isTagsPath(path) ? this.loadTags() : Promise.resolve()
         void done.then(() => this.scheduleEmit())
       })
+      .on('addDir', (path) => {
+        const folder = this.noteFolderOf(path)
+        if (folder) {
+          this.noteFolders.add(folder)
+          this.scheduleEmit()
+        }
+      })
+      .on('unlinkDir', (path) => {
+        const folder = this.noteFolderOf(path)
+        if (!folder) return
+        // フォルダごと消えた・移ったときは、中のフォルダとノートも一覧から外す（ファイルごとの unlink が来ないことがあるため）
+        for (const f of [...this.noteFolders]) {
+          if (f === folder || f.startsWith(`${folder}/`)) this.noteFolders.delete(f)
+        }
+        for (const note of [...this.notes.values()]) {
+          if (note.folder === folder || note.folder.startsWith(`${folder}/`)) {
+            this.forget(note.fileName)
+          }
+        }
+        this.scheduleEmit()
+      })
       .on('error', (error) => console.error('[mokkan] ファイル監視のエラー', error))
     await new Promise<void>((done) => this.watcher?.once('ready', () => done()))
 
-    for (const dir of [this.ticketsDir, this.archiveDir, this.notesDir]) {
+    for (const dir of [this.ticketsDir, this.archiveDir]) {
       if (!dir || !existsSync(dir)) continue
       const entries = await readdir(dir, { withFileTypes: true })
       await Promise.all(
@@ -203,7 +312,40 @@ export class TaskStore {
           .map((e) => this.load(join(dir, e.name)))
       )
     }
+    if (this.notesDir && existsSync(this.notesDir)) await this.loadNotesIn(this.notesDir)
     await this.loadTags()
+  }
+
+  /** notes/ の中のフォルダを1つ読み、その下のフォルダもたどる（隠しフォルダは除く） */
+  private async loadNotesIn(dir: string): Promise<void> {
+    const entries = await readdir(dir, { withFileTypes: true })
+    await Promise.all(
+      entries.map(async (e) => {
+        const path = join(dir, e.name)
+        if (e.isFile() && isTicketFileName(e.name)) {
+          await this.load(path)
+        } else if (e.isDirectory()) {
+          const folder = this.noteFolderOf(path)
+          if (folder === null) return
+          this.noteFolders.add(folder)
+          await this.loadNotesIn(path)
+        }
+      })
+    )
+  }
+
+  /**
+   * notes/ の下のフォルダのパスなら、notes/ からのフォルダ（`案件A/定例` の形）を返す
+   * notes/ そのもの・notes/ の外・隠しフォルダ（とその中）・MAX_NOTE_FOLDER_DEPTH 段より深いフォルダなら null
+   */
+  private noteFolderOf(path: string): string | null {
+    if (!this.notesDir) return null
+    const rel = relative(this.notesDir, resolve(path))
+    if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return null
+    const folder = rel.split(sep).join('/')
+    return isSafeNoteFolder(folder) && folder.split('/').length <= MAX_NOTE_FOLDER_DEPTH
+      ? folder
+      : null
   }
 
   /**
@@ -230,6 +372,64 @@ export class TaskStore {
       .filter((h): h is SearchHit => h !== null)
       .sort(compareHits)
       .slice(0, MAX_SEARCH_HITS)
+  }
+
+  /** チケット・ノート・アーカイブの中身を読む（検索と同じく、呼ばれるたびに読む）。読めないファイルは飛ばす */
+  private async readEntries(): Promise<LintEntry[]> {
+    const files = [...this.tickets.values(), ...this.notes.values()]
+    const entries = await Promise.all(
+      files.map(async (file) => {
+        try {
+          return { file, text: await readFile(this.ticketPath(file.fileName), 'utf8') }
+        } catch {
+          // 同期中で読めない・消えたなど。次に呼ばれたときにまた読む
+          return null
+        }
+      })
+    )
+    return entries.filter((e): e is LintEntry => e !== null)
+  }
+
+  /**
+   * ノートの点検（切れたリンク・見直していない知識など）。結果は持ち続けず、ファイルにも書かない
+   * @param today 今日（`YYYY-MM-DD`）。既定は現地時刻の今日
+   */
+  async lint(today = formatDate(new Date())): Promise<LintItem[]> {
+    if (this.folderStatus !== 'ready') return []
+    return lintFiles(await this.readEntries(), today)
+  }
+
+  /** そのチケット・ノートへのリンク（本文の md のリンクと ID）があるファイル */
+  async backlinks(key: string): Promise<Backlink[]> {
+    if (this.folderStatus !== 'ready' || !this.has(key)) return []
+    return backlinksOf(key, await this.readEntries())
+  }
+
+  /**
+   * ずれたリンク（点検で見つけたもの）を、リンク先の今のファイルへの相対パスに書き換える
+   * 人が「直す」を押したときだけ呼ぶ。そのリンク先のリンクのほかは1文字も変えない
+   * @param href ファイルに書いてあるリンク先
+   * @throws リンクやリンク先が見つからない・書き換えている間にファイルが変わったとき
+   */
+  async fixLink(key: string, href: string): Promise<void> {
+    const id = idFromHref(href)
+    const target = id
+      ? [...this.tickets.values(), ...this.notes.values()].find(
+          (f) => f.id === id || f.fileId === id
+        )
+      : undefined
+    if (!target) throw new Error('リンク先のチケット・ノートが見つかりません')
+    const text = await this.readTicket(key)
+    if (text === null) throw new Error('リンクのあるファイルが見つかりません')
+    const fixed = replaceLinkDestination(text, href, relativeLinkPath(key, target.fileName))
+    if (fixed === null)
+      throw new Error('リンクが見つかりません（すでに直したか、書き換えられています）')
+    const result = await this.saveTicket(key, text, fixed)
+    if (result.status !== 'saved') {
+      throw new Error(
+        '直している間にファイルが変わったので、書き換えませんでした。もう一度点検してください'
+      )
+    }
   }
 
   /**
@@ -356,31 +556,46 @@ export class TaskStore {
     this.watcher = null
   }
 
-  /** tickets/ を作り、ルールのファイル（RULE_FILES）がなければ原本を置く（既存のファイルには触れない） */
+  /**
+   * tickets/ と notes/共通/ を作り、ルールのファイル（RULE_FILES）とテンプレートの見本（SAMPLE_TEMPLATES）が
+   * なければ原本を置く（既存のファイルには触れない）
+   */
   async initFolder(): Promise<void> {
-    if (!this.tasksDir || !this.ticketsDir) throw new Error('tasks フォルダが選ばれていません')
+    if (!this.tasksDir || !this.ticketsDir || !this.notesDir) {
+      throw new Error('tasks フォルダが選ばれていません')
+    }
     await mkdir(this.ticketsDir, { recursive: true })
-    for (const { name, content } of RULE_FILES) {
+    await mkdir(join(this.notesDir, COMMON_FOLDER), { recursive: true })
+    for (const { name, content } of [...RULE_FILES, ...SAMPLE_TEMPLATES]) {
+      const path = join(this.tasksDir, ...name.split('/'))
+      await mkdir(dirname(path), { recursive: true })
       try {
-        await writeFile(join(this.tasksDir, name), content, { flag: 'wx' })
+        await writeFile(path, content, { flag: 'wx' })
       } catch (error) {
         if (!isErrno(error, 'EEXIST')) throw error
       }
     }
   }
 
-  /** ルールのファイルが、このアプリの原本と同じかを調べる */
+  /**
+   * ルールのファイルが、このアプリの原本と同じかを調べる
+   * テンプレートの見本は、あるかないかだけを調べる（あれば中身を問わず same）
+   */
   async checkRuleFiles(): Promise<RuleFileStatus[]> {
     if (!this.tasksDir) throw new Error('tasks フォルダが選ばれていません')
+    const files = [
+      ...RULE_FILES.map((f) => ({ ...f, sample: false })),
+      ...SAMPLE_TEMPLATES.map((f) => ({ ...f, sample: true }))
+    ]
     return Promise.all(
-      RULE_FILES.map(async ({ name, content }): Promise<RuleFileStatus> => {
+      files.map(async ({ name, content, sample }): Promise<RuleFileStatus> => {
         try {
-          const current = await readFile(join(this.tasksDir!, name), 'utf8')
+          const current = await readFile(join(this.tasksDir!, ...name.split('/')), 'utf8')
           // 同期やエディタの設定で改行が CRLF になっただけのものは、同じとみなす
-          const same = current.replace(/\r\n/g, '\n') === content
-          return { name, state: same ? 'same' : 'different' }
+          const same = sample || current.replace(/\r\n/g, '\n') === content
+          return { name, state: same ? 'same' : 'different', sample }
         } catch (error) {
-          if (isErrno(error, 'ENOENT')) return { name, state: 'missing' }
+          if (isErrno(error, 'ENOENT')) return { name, state: 'missing', sample }
           throw error
         }
       })
@@ -389,14 +604,15 @@ export class TaskStore {
 
   /**
    * 指定したルールのファイルを原本にする。ないものは置き、違うものは今のファイルを OS のごみ箱に移してから置く
-   * @param names RULE_FILES のファイル名。それ以外は受け付けない
+   * テンプレートの見本は、ないときだけ置く
+   * @param names RULE_FILES・SAMPLE_TEMPLATES の名前。それ以外は受け付けない
    */
   async updateRuleFiles(names: string[]): Promise<RuleFileStatus[]> {
     if (this.folderStatus !== 'ready' || !this.tasksDir) {
       throw new Error('tasks フォルダが使える状態ではありません')
     }
     const targets = names.map((name) => {
-      const file = RULE_FILES.find((f) => f.name === name)
+      const file = [...RULE_FILES, ...SAMPLE_TEMPLATES].find((f) => f.name === name)
       if (!file) throw new Error(`ルールのファイルではありません：${name}`)
       return file
     })
@@ -404,7 +620,8 @@ export class TaskStore {
     for (const { name, content } of targets) {
       const state = statuses.find((s) => s.name === name)?.state
       if (state === 'same') continue
-      const path = join(this.tasksDir, name)
+      const path = join(this.tasksDir, ...name.split('/'))
+      await mkdir(dirname(path), { recursive: true })
       if (state === 'different') {
         const trash = this.options.trash
         if (!trash) throw new Error('ごみ箱が使えないので差し替えられません')
@@ -426,17 +643,22 @@ export class TaskStore {
   }
 
   /**
-   * TEMPLATE.md から新しいチケットを作る。同名のファイルがあるときは書かない（排他的な作成）
+   * テンプレートから新しいチケットを作る。同名のファイルがあるときは書かない（排他的な作成）
    * アプリで作るときだけ、着手日に今日・担当者に自分・タグに絞り込みのタグを初めの値として入れる
-   * （TEMPLATE.md と、AI や手で作るときの決まりは変えない）
+   * （テンプレートに値が書いてある項目はそのまま。TEMPLATE.md と、AI や手で作るときの決まりは変えない）
    * @param author 作成者（設定の「自分の名前」）。空なら author と assignee の行は空のまま
    * @param tags 初めに付けるタグ（絞り込みでタグを1つだけ選んでいるときのそのタグ）
+   * @param templateName tasks/templates/tickets/ のテンプレートの名前。null なら TEMPLATE.md
    */
-  async createTicket(author = '', tags: string[] = []): Promise<string> {
-    const template = await this.readTemplate()
+  async createTicket(
+    author = '',
+    tags: string[] = [],
+    templateName: string | null = null
+  ): Promise<string> {
+    const template = await this.readChosenTemplate('ticket', templateName)
     const { fileName, text } = await this.writeNewFile('ticket', (id, created) =>
       // 項目の行がない古い TEMPLATE.md でも、RULES.md の並び順の位置に足す
-      setFields(fillTemplate(template, id, created), {
+      setDefaultsWhereEmpty(template.fill(id, created), {
         ...newTicketDefaults(author, created),
         ...(tags.length > 0 ? { tags } : {})
       })
@@ -446,27 +668,155 @@ export class TaskStore {
   }
 
   /**
-   * NOTE_TEMPLATE.md から新しいノートを作る。`date` には今日を入れる
+   * テンプレートから新しいノートを作る。`date` には今日、知識のノートは `reviewed` にも今日を入れる
    * @param author 作成者（設定の「自分の名前」）。空なら author の行は空のまま
-   * @returns ノートのキー（`notes/ファイル名`）
+   * @param request.template tasks/templates/notes/ のテンプレートの名前。null なら NOTE_TEMPLATE.md
+   * @param request.folder 作る先の notes/ の中のフォルダ（あるフォルダだけ）。空文字なら notes/ の直下
+   * @returns ノートのキー（`notes/…/ファイル名`）
    */
-  async createNote(author = ''): Promise<string> {
-    const template = await this.readNoteTemplate()
-    const { fileName, text } = await this.writeNewFile('note', (id, created) =>
-      setFields(
-        fillTemplate(template, id, created, 'NOTE_TEMPLATE.md'),
-        { date: created, ...(author ? { author } : {}) },
-        NOTE_FIELD_ORDER
-      )
+  async createNote(author = '', request: CreateNoteRequest = {}): Promise<string> {
+    const folder = request.folder ?? ''
+    if (folder !== '' && !this.noteFolders.has(folder)) {
+      throw new Error(`フォルダが見つかりません：${folder}`)
+    }
+    const template = await this.readChosenTemplate('note', request.template ?? null)
+    const { fileName, text } = await this.writeNewFile(
+      'note',
+      (id, created) => {
+        const filled = template.fill(id, created)
+        const knowledge = parseNote('x.md', filled).type === 'knowledge'
+        return setDefaultsWhereEmpty(
+          setFields(filled, { date: created }, NOTE_FIELD_ORDER),
+          { ...(knowledge ? { reviewed: created } : {}), ...(author ? { author } : {}) },
+          NOTE_FIELD_ORDER
+        )
+      },
+      '',
+      folder
     )
     this.createdBySelf.set(fileName, text)
     return fileName
   }
 
+  /** tasks/templates/ のテンプレートの名前を読む（フォルダがなければ空） */
+  async listTemplates(): Promise<TemplateList> {
+    const [tickets, notes] = await Promise.all([
+      this.listTemplateNames('ticket'),
+      this.listTemplateNames('note')
+    ])
+    return { tickets, notes }
+  }
+
+  private async listTemplateNames(kind: TemplateKind): Promise<string[]> {
+    if (!this.root) return []
+    try {
+      const entries = await readdir(join(this.root, TEMPLATES_DIR, TEMPLATE_SUBDIRS[kind]), {
+        withFileTypes: true
+      })
+      return entries
+        .filter((e) => e.isFile())
+        .map((e) => templateNameOf(e.name))
+        .filter((n): n is string => n !== null)
+        .sort((a, b) => a.localeCompare(b, 'ja'))
+    } catch (error) {
+      if (isErrno(error, 'ENOENT')) return []
+      throw error
+    }
+  }
+
+  /**
+   * 新規作成に使うテンプレートを読み、id と created を入れる関数を返す
+   * 既定（TEMPLATE.md・NOTE_TEMPLATE.md）は `id:` `created:` の行がなければエラーにする（RULES.md の決まり）。
+   * tasks/templates/ のテンプレートは、行がなければ足す
+   * @param name tasks/templates/ のテンプレートの名前。null なら既定。一覧にない名前は受け付けない
+   */
+  private async readChosenTemplate(
+    kind: TemplateKind,
+    name: string | null
+  ): Promise<{ fill: (id: string, created: string) => string }> {
+    if (name === null) {
+      const template = kind === 'ticket' ? await this.readTemplate() : await this.readNoteTemplate()
+      const label = kind === 'ticket' ? 'TEMPLATE.md' : 'NOTE_TEMPLATE.md'
+      return { fill: (id, created) => fillTemplate(template, id, created, label) }
+    }
+    // 画面から来た名前でパスを作らないよう、フォルダにあるテンプレートの名前と同じものだけを使う
+    if (!(await this.listTemplateNames(kind)).includes(name)) {
+      throw new Error(`テンプレート「${name}」が見つかりません`)
+    }
+    const text = await readFile(
+      join(this.root!, TEMPLATES_DIR, TEMPLATE_SUBDIRS[kind], `${name}.md`),
+      'utf8'
+    )
+    if (!splitFrontmatter(text)) {
+      throw new Error(
+        `テンプレート「${name}」に frontmatter（先頭の --- で囲んだ部分）がありません`
+      )
+    }
+    const order = kind === 'note' ? NOTE_FIELD_ORDER : undefined
+    return { fill: (id, created) => setFields(text, { id, created }, order) }
+  }
+
+  /**
+   * notes/ の中にフォルダを作る（すでにあれば作らない）
+   * @param parent 作る場所（notes/ の中のあるフォルダ。空文字なら notes/ の直下）
+   * @returns 作ったフォルダ（`案件A/定例` の形）
+   */
+  async createNoteFolder(parent: string, name: string): Promise<string> {
+    if (this.folderStatus !== 'ready' || !this.notesDir) {
+      throw new Error('tasks フォルダが使える状態ではありません')
+    }
+    if (parent !== '' && !this.noteFolders.has(parent)) {
+      throw new Error(`フォルダが見つかりません：${parent}`)
+    }
+    const trimmed = name.trim()
+    const error = folderNameError(trimmed)
+    if (error) throw new Error(error)
+    const folder = parent ? `${parent}/${trimmed}` : trimmed
+    if (folder.split('/').length > MAX_NOTE_FOLDER_DEPTH) {
+      throw new Error(`フォルダは notes/ から${MAX_NOTE_FOLDER_DEPTH}段までにしてください`)
+    }
+    const path = join(this.notesDir, ...folder.split('/'))
+    if (existsSync(path)) throw new Error(`同じ名前のフォルダかファイルがあります：${folder}`)
+    await mkdir(path, { recursive: true })
+    this.noteFolders.add(folder)
+    this.scheduleEmit()
+    return folder
+  }
+
+  /**
+   * ノートを notes/ の中の別のフォルダに移す。ファイル名は変えず、rename で移す（moveTickets と同じ理由）
+   * 本文のリンクの相対パスは書き換えない（アプリはリンク先の ID で開くので切れないが、ほかのエディタでは切れる）
+   * @param folder 移す先（notes/ の中のあるフォルダ。空文字なら notes/ の直下）
+   * @returns 元のキーから、移した後のキーへの対応（同じフォルダなら空）
+   */
+  async moveNote(key: string, folder: string): Promise<Record<string, string>> {
+    const note = this.requireNote(key)
+    if (folder !== '' && !this.noteFolders.has(folder)) {
+      throw new Error(`フォルダが見つかりません：${folder}`)
+    }
+    if (note.folder === folder) return {}
+    const from = this.ticketPath(key)
+    const name = basename(from)
+    const newKey = noteKey(folder, name)
+    const to = this.pathOf(newKey)
+    if (!to) throw new Error(`移せない場所です：${folder}`)
+    // rename は Windows では同じ名前のファイルを上書きするので、直前に確かめる
+    if (existsSync(to)) throw new Error(`移す先に同じ名前のファイルがあります：${name}`)
+    await mkdir(dirname(to), { recursive: true })
+    await rename(from, to)
+    this.forget(key)
+    this.createdBySelf.delete(key)
+    await this.load(to)
+    this.scheduleEmit()
+    return { [key]: newKey }
+  }
+
   /**
    * ノートからチケットを起こし、ノートの「宿題」に `→ [ID](../tickets/ファイル名)` を書き戻す
-   * （RULES.md「議事メモからタスクを起こす」）
-   * チケットには `source` にノートの id を入れ、ノートのタグを引き継ぐ。ファイル名には初めから見出しを付ける
+   * （RULES.md「ノートからタスクを起こす」）
+   * 書き戻すのは「宿題」の見出しがあるノートだけ（知識のノートなどにリンクを書き足さない）
+   * チケットには `source` にノートの id を入れ、ノートのタグと、ノートのプロジェクトのタグ
+   * （notes/ の直下のフォルダ名。共通/ を除く）を付ける。ファイル名には初めから見出しを付ける
    * （書き戻すリンクが、起動時の名前の付け足しで切れないように）
    * @param noteBase 画面が最後に読んだノートの中身。ファイルがこれと違えば、何も作らずに conflict を返す
    * @param author 作成者（設定の「自分の名前」）
@@ -489,6 +839,8 @@ export class TaskStore {
     if (!note.id) throw new Error('ノートに id がありません')
 
     const template = await this.readTemplate()
+    const project = projectTag(note.folder)
+    const tags = project && !note.tags.includes(project) ? [...note.tags, project] : note.tags
     let ticketId = ''
     const { fileName } = await this.writeNewFile(
       'ticket',
@@ -496,7 +848,7 @@ export class TaskStore {
         ticketId = id
         const filled = setFields(fillTemplate(template, id, created), {
           source: note.id,
-          tags: note.tags,
+          tags,
           ...newTicketDefaults(author, created),
           ...(options.assignee && options.assignee.length > 0
             ? { assignee: assigneeField(options.assignee) }
@@ -507,6 +859,10 @@ export class TaskStore {
       },
       title
     )
+    // 「宿題」の見出しがないノートには書き戻さない（チケットの source からノートに戻れる）
+    if (!hasHomeworkHeading(current)) {
+      return { status: 'created', fileName, noteText: current }
+    }
 
     // チケットを作っている間にノートが外部で変わっていたら、上書きせずに知らせる（作ったチケットは残す）
     const link = `[${ticketId}](${markdownLinkDestination(relativeLinkPath(noteKey, fileName))})`
@@ -567,17 +923,21 @@ export class TaskStore {
   /**
    * 新しい ID でチケット（tickets/）かノート（notes/）を書く。同名のファイルがあるときは書かない（排他的な作成）
    * @param title タイトルがわかっていれば、ファイル名に付ける（ID_タイトル.md）
-   * @returns キー（ノートは `notes/ファイル名`）と書いた中身
+   * @param folder ノートを作る notes/ の中のフォルダ（呼ぶ側で、あるフォルダかを確かめておく）
+   * @returns キー（ノートは `notes/…/ファイル名`）と書いた中身
    */
   private async writeNewFile(
     kind: 'ticket' | 'note',
     build: (id: string, created: string) => string,
-    title = ''
+    title = '',
+    folder = ''
   ): Promise<{ fileName: string; text: string }> {
     if (this.folderStatus !== 'ready' || !this.ticketsDir || !this.notesDir) {
       throw new Error('tasks フォルダが使える状態ではありません')
     }
-    const dir = kind === 'note' ? this.notesDir : this.ticketsDir
+    if (!isSafeNoteFolder(folder)) throw new Error(`フォルダの名前が正しくありません：${folder}`)
+    const dir =
+      kind === 'note' ? join(this.notesDir, ...(folder ? folder.split('/') : [])) : this.ticketsDir
     if (kind === 'note') await mkdir(dir, { recursive: true })
     for (let attempt = 0; attempt < MAX_CREATE_ATTEMPTS; attempt++) {
       const now = new Date()
@@ -597,7 +957,7 @@ export class TaskStore {
       }
       await this.load(path)
       this.scheduleEmit()
-      return { fileName: kind === 'note' ? NOTES_PREFIX + name : name, text }
+      return { fileName: kind === 'note' ? noteKey(folder, name) : name, text }
     }
     throw new Error('IDが重ならない名前を作れませんでした')
   }
@@ -742,11 +1102,17 @@ export class TaskStore {
   /** キーから絶対パスを作る。キーの形が正しくなければ null */
   private pathOf(key: string): string | null {
     if (!this.ticketsDir || !this.archiveDir || !this.notesDir) return null
+    if (isNoteKey(key)) {
+      // ノートは notes/ の中のフォルダを含む。notes/ の外を指さないよう、フォルダの形も確かめる
+      const { folder, name } = splitNoteKey(key)
+      if (!isSafeNoteFolder(folder) || basename(name) !== name || !isTicketFileName(name)) {
+        return null
+      }
+      return join(this.notesDir, ...(folder ? folder.split('/') : []), name)
+    }
     const [dir, name] = key.startsWith(ARCHIVE_PREFIX)
       ? [this.archiveDir, key.slice(ARCHIVE_PREFIX.length)]
-      : isNoteKey(key)
-        ? [this.notesDir, key.slice(NOTES_PREFIX.length)]
-        : [this.ticketsDir, key]
+      : [this.ticketsDir, key]
     // キーはファイル名だけ（区切り文字を含まない）。念のため確かめる
     if (basename(name) !== name || !isTicketFileName(name)) return null
     return join(dir, name)
@@ -827,7 +1193,10 @@ export class TaskStore {
     return moved
   }
 
-  /** ファイルのパスからキーを返す。tickets/・archive/・notes/ の直下の md でなければ null */
+  /**
+   * ファイルのパスからキーを返す
+   * tickets/・archive/ の直下の md と、notes/ の下（隠しフォルダを除くフォルダの中も）の md でなければ null
+   */
   private keyOf(path: string): string | null {
     const full = resolve(path)
     const name = basename(full)
@@ -835,8 +1204,9 @@ export class TaskStore {
     const dir = dirname(full)
     if (dir === this.ticketsDir) return name
     if (dir === this.archiveDir) return ARCHIVE_PREFIX + name
-    if (dir === this.notesDir) return NOTES_PREFIX + name
-    return null
+    if (dir === this.notesDir) return noteKey('', name)
+    const folder = this.noteFolderOf(dir)
+    return folder === null ? null : noteKey(folder, name)
   }
 
   private checkFolder(): FolderStatus {
@@ -848,7 +1218,7 @@ export class TaskStore {
     return 'ready'
   }
 
-  /** tasks/RULES.md を読む。なければ同梱の原本（AI に議事メモからタスクを起こす手順を渡すため） */
+  /** tasks/RULES.md を読む。なければ同梱の原本（AI にノートからタスクを起こす手順を渡すため） */
   async readRules(): Promise<string> {
     if (!this.tasksDir) return bundledRules
     return this.readTemplateFile('RULES.md', bundledRules)

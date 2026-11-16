@@ -1,5 +1,7 @@
 // 裏方（main）と画面（renderer）の間でやりとりする型
 
+import type { AiService } from './aiService'
+import type { Backlink, LintItem } from './lint'
 import type { Note } from './note'
 import type { SearchHit, SearchOptions } from './search'
 import type { TagColors } from './tagColor'
@@ -18,8 +20,10 @@ export interface AppState {
   tasksDir: string | null
   folderStatus: FolderStatus
   tickets: Ticket[]
-  /** tasks/notes/ のノート */
+  /** tasks/notes/ のノート（その下のフォルダの中のものも） */
   notes: Note[]
+  /** tasks/notes/ の下のフォルダ（`案件A`・`案件A/定例` など。空のフォルダも含む。名前の順） */
+  noteFolders: string[]
   /** tasks/TAGS.md に書いたタグの色（タグ → 色相）。選んでいないタグは入らない */
   tagColors: TagColors
   /** TAGS.md の確認が必要なこと（読めない理由と、同期サービスの競合コピーのファイル名） */
@@ -64,7 +68,8 @@ export interface FromNoteRequest {
 
 /**
  * ノートからチケットを起こした結果
- * - created：チケットを作り、ノートの「宿題」に書き戻した（noteText は書き戻した後のノートの中身）
+ * - created：チケットを作り、ノートの「宿題」に書き戻した（noteText は書き戻した後のノートの中身）。
+ *   「宿題」の見出しがないノートには書き戻さない（noteText は今のノートの中身のまま）
  * - conflict：ノートが最後に読んでから外部で変わっていたので、何も作らなかった（text は今のノートの中身）
  * - not-written-back：チケットは作ったが、ノートに書き戻せなかった（作っている間にノートが外部で変わった、
  *   書き込みに失敗したなど）。line は「宿題」に書くはずだった行（手で書き足してもらう）
@@ -75,14 +80,34 @@ export type FromNoteResult =
   | { status: 'not-written-back'; fileName: string; line: string; reason: string }
 
 /**
- * tasks/ 直下のルールのファイル（RULES.md など）が、アプリの原本と同じか
- * - same：同じ
+ * tasks/ 直下のルールのファイル（RULES.md など）とテンプレートの見本が、アプリの原本と同じか
+ * - same：同じ（見本は、あれば中身を問わず same）
  * - different：違う（手で直した、古い版のまま、など）
  * - missing：ない
  */
 export interface RuleFileStatus {
+  /** tasks/ からのパス（`RULES.md`・`templates/notes/議事メモ.md` など） */
   name: string
   state: 'same' | 'different' | 'missing'
+  /** テンプレートの見本か（ないときだけ置く。手で直しても「違う」にしない）。なければルールのファイル */
+  sample?: boolean
+}
+
+/** 新規作成で選べるテンプレート */
+export type TemplateKind = 'ticket' | 'note'
+
+/** tasks/templates/ のテンプレートの名前（ファイル名から .md を除いたもの。名前の順） */
+export interface TemplateList {
+  tickets: string[]
+  notes: string[]
+}
+
+/** 新しいノートを作るときの指定 */
+export interface CreateNoteRequest {
+  /** tasks/templates/notes/ のテンプレートの名前。null なら既定（NOTE_TEMPLATE.md） */
+  template?: string | null
+  /** 作る先の notes/ の中のフォルダ。空文字なら notes/ の直下 */
+  folder?: string
 }
 
 /** AI が出したタスクの候補 */
@@ -126,12 +151,34 @@ export interface MokkanApi {
   /** tickets/ を作り、ルールのファイル（RULES.md・テンプレート・CLAUDE.md・AGENTS.md）がなければ置く */
   initFolder(): Promise<AppState>
   /**
-   * TEMPLATE.md から新しいチケットを作る。着手日に今日・担当者と作成者に自分の名前を入れる
+   * テンプレート（既定は TEMPLATE.md）から新しいチケットを作る。着手日に今日・担当者と作成者に自分の名前を入れる
+   * （テンプレートに値が書いてある項目は、テンプレートの値のまま）
    * @param tags 初めに付けるタグ（絞り込みでタグを1つだけ選んでいるときのそのタグ）
+   * @param template tasks/templates/tickets/ のテンプレートの名前。null なら既定
    */
-  createTicket(tags?: string[]): Promise<CreateResult>
-  /** NOTE_TEMPLATE.md から新しいノートを作る。fileName は `notes/ファイル名` */
-  createNote(): Promise<CreateResult>
+  createTicket(tags?: string[], template?: string | null): Promise<CreateResult>
+  /** テンプレート（既定は NOTE_TEMPLATE.md）から新しいノートを作る。fileName は `notes/…/ファイル名` */
+  createNote(request?: CreateNoteRequest): Promise<CreateResult>
+  /** tasks/templates/ のテンプレートの名前を読む */
+  listTemplates(): Promise<TemplateList>
+  /** 前回選んだテンプレート（個人設定）。既定なら null */
+  getTemplateChoice(kind: TemplateKind): Promise<string | null>
+  setTemplateChoice(kind: TemplateKind, name: string | null): Promise<void>
+  /** 「AI でタスクを起こす」で使う AI（個人設定。既定は Claude Code） */
+  getAiService(): Promise<AiService>
+  setAiService(service: AiService): Promise<void>
+  /**
+   * notes/ の中にフォルダを作る
+   * @param parent 作る場所（notes/ の中のフォルダ。空文字なら notes/ の直下）
+   * @returns 作ったフォルダ（`案件A/定例` など）
+   */
+  createNoteFolder(parent: string, name: string): Promise<string>
+  /**
+   * ノートを notes/ の中の別のフォルダに移す（名前は変えない）
+   * @param folder 移す先（空文字なら notes/ の直下）
+   * @returns 元のキーから、移した後のキーへの対応（archiveTicket と同じ形）
+   */
+  moveNote(fileName: string, folder: string): Promise<Record<string, string>>
   /**
    * ノートからチケットを起こし、ノートの「宿題」に書き戻す
    * @param noteBase 画面が最後に読んだノートの中身。ファイルがこれと違えば何もしない
@@ -202,6 +249,17 @@ export interface MokkanApi {
   cancelSuggestTasks(): Promise<void>
   /** チケット・ノート・アーカイブを、タイトルと本文から探す */
   search(query: string, options: SearchOptions): Promise<SearchHit[]>
+  /** ノートの点検（切れたリンク・見直していない知識など）。呼ぶたびにファイルを読む。結果はファイルに書かない */
+  lint(): Promise<LintItem[]>
+  /** そのチケット・ノートへのリンク（本文の md のリンクと ID）があるファイル */
+  backlinks(fileName: string): Promise<Backlink[]>
+  /**
+   * 点検で見つけたずれたリンクを、リンク先の今のファイルへの相対パスに書き換える
+   * @param href ファイルに書いてあるリンク先（LintItem.href）
+   */
+  fixLink(fileName: string, href: string): Promise<void>
+  /** 点検し直し、結果を md の箇条書きにしてクリップボードに入れる（ファイルには書かない）。見つかった件数を返す */
+  copyLintReport(): Promise<number>
   /** 案内を閉じた（または設定を開いた）。今の版を覚え、次からは出さない */
   dismissOnboarding(): Promise<void>
   /** タグの色（色相 0〜359）を tasks/TAGS.md に書く。null なら指定を外す（名前から決める色に戻す） */
@@ -216,6 +274,13 @@ export const IPC = {
   initFolder: 'mokkan:init-folder',
   createTicket: 'mokkan:create-ticket',
   createNote: 'mokkan:create-note',
+  listTemplates: 'mokkan:list-templates',
+  getTemplateChoice: 'mokkan:get-template-choice',
+  setTemplateChoice: 'mokkan:set-template-choice',
+  getAiService: 'mokkan:get-ai-service',
+  setAiService: 'mokkan:set-ai-service',
+  createNoteFolder: 'mokkan:create-note-folder',
+  moveNote: 'mokkan:move-note',
   createTicketFromNote: 'mokkan:create-ticket-from-note',
   checkRuleFiles: 'mokkan:check-rule-files',
   updateRuleFiles: 'mokkan:update-rule-files',
@@ -237,6 +302,10 @@ export const IPC = {
   getOnboarding: 'mokkan:get-onboarding',
   dismissOnboarding: 'mokkan:dismiss-onboarding',
   search: 'mokkan:search',
+  lint: 'mokkan:lint',
+  backlinks: 'mokkan:backlinks',
+  fixLink: 'mokkan:fix-link',
+  copyLintReport: 'mokkan:copy-lint-report',
   suggestTasksFromNote: 'mokkan:suggest-tasks-from-note',
   cancelSuggestTasks: 'mokkan:cancel-suggest-tasks'
 } as const

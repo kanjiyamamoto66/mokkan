@@ -1,6 +1,12 @@
 // 個人設定の画面（tasks/ の外の settings.json に保存する。共有するデータには書かない）
 
 import { useEffect, useRef, useState } from 'react'
+import {
+  AI_SERVICES,
+  aiServiceOptionLabel,
+  asAiService,
+  type AiService
+} from '../../../shared/aiService'
 import type { RuleFileStatus } from '../../../shared/api'
 
 interface Props {
@@ -74,7 +80,8 @@ function RuleFiles(): React.JSX.Element {
       <h3>ルールのファイル</h3>
       <p className="dialog-note">
         tasks フォルダの RULES.md などを、このアプリの版の原本にします。AI
-        がノートや議事メモの書き方に従うには、最新の RULES.md と CLAUDE.md・AGENTS.md が要ります。
+        がノートの書き方やタスクの起こし方に従うには、最新の RULES.md と CLAUDE.md・AGENTS.md
+        が要ります。テンプレートの見本は、ないときだけ置きます（手で直したものは置き換えません）。
       </p>
       {files === null && !error && <p className="dialog-note">確かめています…</p>}
       {files && (
@@ -94,7 +101,13 @@ function RuleFiles(): React.JSX.Element {
                   }}
                 />
                 <code>{f.name}</code>
-                <span className={`rule-state ${f.state}`}>{RULE_STATE_LABELS[f.state]}</span>
+                <span className={`rule-state ${f.state}`}>
+                  {f.sample
+                    ? f.state === 'missing'
+                      ? 'テンプレートの見本（ない）'
+                      : 'テンプレートの見本（ある）'
+                    : RULE_STATE_LABELS[f.state]}
+                </span>
               </label>
             </li>
           ))}
@@ -109,6 +122,57 @@ function RuleFiles(): React.JSX.Element {
           </button>
         </div>
       )}
+    </section>
+  )
+}
+
+/** 「AI でタスクを起こす」で使う AI。選んだらすぐ保存する */
+function AiServiceSetting(): React.JSX.Element {
+  const [service, setService] = useState<AiService | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    window.api
+      .getAiService()
+      .then(setService)
+      .catch((e) => setError(errorMessage(e)))
+  }, [])
+
+  const change = async (next: AiService): Promise<void> => {
+    setError(null)
+    try {
+      await window.api.setAiService(next)
+      setService(next)
+    } catch (e) {
+      setError(errorMessage(e))
+    }
+  }
+
+  return (
+    <section className="dialog-section">
+      <h3>AI</h3>
+      <label className="dialog-field">
+        <span>「AI でタスクを起こす」で使う AI</span>
+        <select
+          value={service ?? ''}
+          disabled={service === null}
+          onChange={(e) => {
+            const next = asAiService(e.target.value)
+            if (next) void change(next)
+          }}
+        >
+          {AI_SERVICES.map((s) => (
+            <option key={s} value={s}>
+              {aiServiceOptionLabel(s)}
+            </option>
+          ))}
+        </select>
+        <small>
+          このパソコンに入れてログインしたものを呼びます（Claude Code は claude、Cursor は Cursor
+          CLI の agent）。選ぶとすぐに保存します。
+        </small>
+      </label>
+      {error && <p className="dialog-error">{error}</p>}
     </section>
   )
 }
@@ -183,6 +247,7 @@ function SettingsDialog({ userName, folderReady, onSave, onClose }: Props): Reac
             </button>
           </div>
         </form>
+        <AiServiceSetting />
         {folderReady && <RuleFiles />}
       </div>
     </div>

@@ -7,7 +7,7 @@
 標準のmdファイル群をデータベースにした、個人用のタスク管理デスクトップアプリ（名称：mokkan）です。1チケット＝1つのmdファイル（YAMLのfrontmatter＋本文）で、人・AI・アプリが同じファイルを直接読み書きします。
 
 - 仕様の全体は `docs/spec.md` にあります。設計判断の根拠もそこに書いてあるので、迷ったら先に読んでください。
-- `templates/RULES.md`・`templates/TEMPLATE.md`・`templates/NOTE_TEMPLATE.md` は、データ側（`tasks/` フォルダ）に置くファイルの原本です。`templates/AI_GUIDE.md` は、`tasks/` に `CLAUDE.md` と `AGENTS.md` の2つの名前で置く、AI向けの案内の原本です。
+- `templates/RULES.md`・`templates/TEMPLATE.md`・`templates/NOTE_TEMPLATE.md` は、データ側（`tasks/` フォルダ）に置くファイルの原本です。`templates/AI_GUIDE.md` は、`tasks/` に `CLAUDE.md` と `AGENTS.md` の2つの名前で置く、AI向けの案内の原本です。`templates/samples/notes/` は、`tasks/templates/notes/` に日本語の名前で置くノートのテンプレートの見本です（名前の対応は `taskStore.ts` の `SAMPLE_TEMPLATES`）。
 
 ## 進め方
 
@@ -36,21 +36,23 @@
 | `src/shared/frontmatter.ts` | frontmatter の書き換え。変えた項目の行だけを書き換える（`setFields`） |
 | `src/shared/body.ts` | 本文の保存。編集していないブロックを元のテキストに戻す（`mergeBody`、`canPreserveBlocks`） |
 | `src/shared/schedule.ts` | カレンダーの予定と、ガントの行（親子の木・まとめ棒の期間・はみ出しの警告・祖先を薄く・タグごと）の計算 |
-| `src/shared/note.ts` | ノート（`notes/`）の読み取り・一覧の並び順・ノートから起こしたチケット・「宿題」への書き戻し（`attachHomework`・`appendHomework`）と項目の読み取り（`parseHomeworkItem`） |
+| `src/shared/note.ts` | ノート（`notes/` とその下のフォルダ）の読み取り（種類・見直した日・フォルダ）・キーとフォルダ（`splitNoteKey`・`noteKey`・`isSafeNoteFolder`・`folderNameError`・`projectTag`）・一覧の絞り込みと並び順・ノートから起こしたチケット・「宿題」への書き戻し（`attachHomework`・`appendHomework`・`hasHomeworkHeading`）と項目の読み取り（`parseHomeworkItem`） |
 | `src/shared/archive.ts` | アーカイブ（`archive/` に移す）・戻す・削除の対象（子孫を含む）を決める |
 | `src/shared/tagColor.ts` | タグの色（`tasks/TAGS.md` の読み取りと、変えたタグの行だけの書き換え・名前から決める色相） |
 | `src/shared/repeat.ts` | 繰り返し（`repeat`）の書式の読み取り、次回の日付の計算、次回分のチケットの中身の組み立て |
 | `src/shared/search.ts` | 全文検索の当たりの判定（語の分け方・文字起こしを除く・当たった箇所の文）。ファイルを読むのは `TaskStore.search`（探すたびに読む） |
-| `src/shared/links.ts` | 他のチケット・ノートへの md のリンク（相対パス・リンク先の ID）と、リンクの候補の絞り込み・探すための文字の揃え方（`normalizeForSearch`） |
+| `src/shared/links.ts` | 他のチケット・ノートへの md のリンク（相対パス・リンク先の ID・リンク先が指すファイル `resolveLinkPath`）と、文の中の ID（`findIds`）・リンクの候補の絞り込み・探すための文字の揃え方（`normalizeForSearch`） |
+| `src/shared/lint.ts` | ノートの点検（`lintFiles`：切れたリンク・ずれたリンク・入口がない・入口から外れた知識・見直していない知識・確かめていない記述・長すぎる知識）・被リンク（`backlinksOf`）・本文のリンクと ID の読み取り（`bodyRefs`、remark で読み、コードの中は除く）・ずれたリンクを直す（`replaceLinkDestination`）・結果の md（`lintToMarkdown`）。ファイルを読むのは `TaskStore.lint`・`backlinks`・`fixLink`（呼ばれるたびに読む） |
 | `src/shared/api.ts` | 裏方と画面の間の IPC の型とチャンネル名 |
 | `src/main/taskStore.ts` | `tasks/` の読み込み・監視（`tickets/`・`archive/`・`notes/`・`TAGS.md`）・作成（チケット・ノート・ノートから起こすチケット）・保存・空チケットの削除・繰り返しの次回分の作成・アーカイブ・ごみ箱への削除・ルールのファイル（`RULE_FILES`）の確認と更新・タグの色の書き込み（`setTagColor`）・全文検索（`search`）・起動時の見出しの付け足し（`renameUntitledFiles`） |
 | `src/main/ipc.ts` | IPC の入力の確かめ（`requireString`・`requireStringArray`・`normalizeTitle`・`normalizeTag`・`requireHue`・`normalizeFromNoteOptions`）、ハンドラー、設定への案内の判定（`decideOnboarding`・`onboardingHandlers`）、外部のブラウザで開いてよい URL か（http/https だけ）。electron に依存しないので Node 上でテストできる |
-| `src/main/aiTasks.ts` | ノートを AI（パソコンの Claude Code、`claude -p`）に送ってタスクの候補を出してもらう。送る文の組み立て・答えの読み取り・`claude` の呼び出し（文は標準入力で渡し、道具は使わせない）。electron に依存しないので Node 上でテストできる |
-| `src/main/settings.ts` | `tasks/` の場所や一覧の並び順・自分の名前・最後に案内を済ませた版（`lastVersion`）などの個人設定（userData に保存。開発中は `%APPDATA%\mokkan-dev`） |
+| `src/main/aiTasks.ts` | ノートを AI（パソコンの Claude Code の `claude -p` か、Cursor CLI の `agent -p`。`runAi`）に送ってタスクの候補を出してもらう。送る文の組み立て・答えの読み取り・呼び出し（`runClaude`・`runCursor`。文は標準入力で渡し、道具は使わせない）・Cursor CLI の探し方（`cursorCommands`）・失敗の理由（`failureMessage`）。electron に依存しないので Node 上でテストできる |
+| `src/shared/aiService.ts` | 使える AI（`AI_SERVICES`）と、画面に出す名前・見つからないときの案内 |
+| `src/main/settings.ts` | `tasks/` の場所や一覧の並び順・自分の名前・最後に案内を済ませた版（`lastVersion`）・使う AI（`aiService`）などの個人設定（userData に保存。開発中は `%APPDATA%\mokkan-dev`） |
 | `src/main/index.ts` | ウィンドウと IPC の登録。画面は sandbox で動かし、ページの移動（`will-navigate`。今のページの読み込み直しは通す）と権限の要求（カメラ・通知など）は断る |
 | `src/preload/index.ts` | 画面に渡す API（`window.api`） |
 | `src/renderer/src/App.tsx` | 画面の全体（表示の切り替え・選択中のチケットと「← 戻る」の履歴・新規作成・並び順と自分の名前の読み込み・アーカイブで移したときの切り替え・検索の結果から開く・設定への案内と名前の付け足しの案内の帯） |
-| `src/renderer/src/components/` | 一覧・絞り込み・警告・編集画面・プロパティフォーム・カレンダー・ガント・凡例（`Legend`）・タグと担当者の入力（`TagInput`）・タグの色の選択（`TagColorPicker`）・繰り返しの指定（`RepeatInput`）・本文のツールバー（`EditorToolbar`）・`[[` の候補（`LinkSuggestList`）・検索欄（`SearchBox`）・設定とルールのファイル（`SettingsDialog`）・まとめてアーカイブ（`ArchiveDialog`）・ノートの一覧（`NoteList`）・ノートのプロパティと「＋ ここからチケット」（`NoteProperties`）・AI でタスクを起こす窓（`AiTasksDialog`）。編集画面（`TicketEditor`）はチケットとノートの両方を開く |
+| `src/renderer/src/components/` | 一覧・絞り込み・警告・編集画面・プロパティフォーム・カレンダー・ガント・凡例（`Legend`）・タグと担当者の入力（`TagInput`）・タグの色の選択（`TagColorPicker`）・繰り返しの指定（`RepeatInput`）・本文のツールバー（`EditorToolbar`）・`[[` の候補（`LinkSuggestList`）・検索欄（`SearchBox`）・設定とルールのファイル（`SettingsDialog`）・まとめてアーカイブ（`ArchiveDialog`）・ノートの一覧（`NoteList`）・ノートのフォルダの木と種類の絞り込み（`NoteFolderTree`）・新規作成のボタンとテンプレートの選択（`NewButton`）・ノートのプロパティと「＋ ここからチケット」（`NoteProperties`）・AI でタスクを起こす窓（`AiTasksDialog`）・ノートの点検の結果（`NoteLintPanel`）・編集画面の「このノートへのリンク」（`Backlinks`）。編集画面（`TicketEditor`）はチケットとノートの両方を開く |
 | `src/renderer/src/tagStyle.ts` | タグの色を画面に付ける（色相を `--tag-h` で渡す）・タグの色を保存する |
 | `src/renderer/src/editor/markdown.ts` | Milkdown の組み立てと書き出し設定（`STRINGIFY_OPTIONS`）。往復テストは同じ場所の `markdown.test.ts`（jsdom） |
 | `src/renderer/src/editor/idLinks.ts` | 本文の中の ID と、他のチケット・ノートへの md のリンク（リンク先の ID で探す）に印とタイトルを付け、Ctrl+クリックで開く ProseMirror のプラグイン（画面の飾りだけで、本文は変えない）。テストは `idLinks.test.ts`（jsdom） |
@@ -83,14 +85,17 @@
 ### アーカイブと削除
 
 - `archive/` のチケットは、`Ticket.fileName` を `archive/ファイル名` にして区別する（画面と裏方の間のキー）。ファイル名から読む ID（`fileId`）はファイル名だけから読む。
-- 監視は `tasks/` から1段下まで（`tickets/`・`archive/`・`notes/` の直下の md と、`tasks/` 直下の `TAGS.md` とその競合コピーだけ）。`archive/` は最初のアーカイブで、`notes/` は最初のノートで作られる。
+- 監視は `tasks/` から、`tickets/`・`archive/` の直下の md と、`notes/` の下の md（フォルダの中も。`.` で始まるフォルダは除く）、`tasks/` 直下の `TAGS.md` とその競合コピーだけ。ほかのフォルダは chokidar の `ignored` で入らない。`notes/` の下のフォルダは `MAX_NOTE_FOLDER_DEPTH`（9段）まで読み、監視の `depth` もそれに合わせる（`depth` を決めない無制限の監視では、Windows で変更の通知が数秒遅れ、テストが落ちることがあった）。`archive/` は最初のアーカイブで、`notes/` は「準備する」か最初のノートで作られる。
 
 ### ノート
 
-- ノートは `Ticket` とは別の型（`Note`）で、`AppState.notes` に入る。キーは `notes/ファイル名`。読み書き・保存・競合・ごみ箱への削除は、チケットと同じ IPC（`readTicket`・`saveTicket` など）にこのキーを渡して行う。
+- ノートは `Ticket` とは別の型（`Note`）で、`AppState.notes` に入る。キーは `notes/ファイル名`、フォルダの中なら `notes/フォルダ/…/ファイル名`（区切りはいつも `/`。`splitNoteKey`・`noteKey`）。読み書き・保存・競合・ごみ箱への削除は、チケットと同じ IPC（`readTicket`・`saveTicket` など）にこのキーを渡して行う。キーからパスを作るとき（`pathOf`）は、`isSafeNoteFolder` で `notes/` の外や隠しフォルダを指さないことを確かめる。
+- `notes/` の下のフォルダは `AppState.noteFolders`（空のフォルダも含む）。作る（`createNoteFolder`）・ノートを移す（`moveNote`、rename だけ）は、あるフォルダ（`noteFolders` にあるもの）だけを受け付ける。作るフォルダの名前の決まりは `folderNameError`（読むときの `isSafeNoteFolder` より厳しい）。
+- ノートの種類（`type`：`record`・`knowledge`・`index`。ない・知らない値は `record`）と見直した日（`reviewed`）は `Note` に入る。`NOTE_FIELD_ORDER` は `id, type, date, reviewed, tags, author, created`。
+- テンプレートは `tasks/templates/tickets|notes/*.md`（`listTemplates`）。画面から来たテンプレートの名前でパスを作らず、フォルダにある名前と同じものだけを読む（`readChosenTemplate`）。既定（`TEMPLATE.md`・`NOTE_TEMPLATE.md`）は `fillTemplate`、それ以外は `setFields` で id と created を入れ、`setDefaultsWhereEmpty` でテンプレートで空の項目にだけ初めの値を入れる。見本（`SAMPLE_TEMPLATES`）はルールのファイルと同じ画面で扱うが、ないときだけ置き、中身は比べない（`RuleFileStatus.sample`）。前回選んだテンプレートは個人設定の `templateChoice`。
 - ID はチケットとノートをまたいで重ならないようにする（`writeNewFile` で確かめ、`findWarnings(tickets, notes)` で警告する）。`findWarnings` にノートを渡さないと、`source` のあるチケットがすべて「元のノートが見つからない」になる。
 - ノートの frontmatter は `NOTE_FIELD_ORDER` の並び順で書き換える（`setFields` の第3引数）。
-- 「＋ここからチケット」（`createTicketFromNote`）は、画面が最後に読んだノートの中身を受け取り、ファイルがそれと同じときだけチケットを作って「宿題」に書き戻す。書き戻しは、選んだ「宿題」の項目の行末に付ける `attachHomework`（項目の文で探す）か、見つからなければ最後に行を足す `appendHomework` で、付けたもののほかは変えない。書き戻すのは `→ [ID](../tickets/ファイル名)` の md のリンクで、チケットのファイル名は初めから `ID_タイトル.md` にする（起動時の名前の付け足しでリンクが切れないように）。
+- 「＋ここからチケット」（`createTicketFromNote`）は、画面が最後に読んだノートの中身を受け取り、ファイルがそれと同じときだけチケットを作って「宿題」に書き戻す。「宿題」の見出しがないノート（`hasHomeworkHeading`）には書き戻さない。チケットのタグには、ノートのタグとプロジェクトのタグ（`projectTag`：`notes/` の直下のフォルダ名。`共通` は除く）を付ける。書き戻しは、選んだ「宿題」の項目の行末に付ける `attachHomework`（項目の文で探す）か、見つからなければ最後に行を足す `appendHomework` で、付けたもののほかは変えない。書き戻すのは `→ [ID](../tickets/ファイル名)` の md のリンクで、チケットのファイル名は初めから `ID_タイトル.md` にする（起動時の名前の付け足しでリンクが切れないように）。
 - 移すときは rename だけ。移す先に同じ名前のファイルがあれば、どれも移さない。削除は `shell.trashItem` でごみ箱に移し、完全には消さない（TaskStore には `trash` として渡す。テストでは偽物を渡す）。
 
 ### カレンダーとガント
@@ -116,6 +121,7 @@
 - 他のチケット・ノートへは標準の md のリンク（`[タイトル](../notes/ID_….md)`）で書き、アプリはリンク先のファイル名の先頭の ID だけで探す（`idFromHref`）。名前が変わっても、archive/ に移っても開ける。
 - `[[` は入力のきっかけにすぎず、ファイルには残さない。日本語入力の変換中のキーは扱わない（`view.composing`）。
 - エディタを通さずに書くリンク（「宿題」への書き戻し）は、空白や括弧のあるリンク先を `<…>` で囲む（`markdownLinkDestination`）。
+- 相対パス（`relativeLinkPath`）は、`notes/` の中のフォルダの深さに合わせて `../` を重ねる。ノートを別のフォルダに移しても、本文のリンクは書き換えない。
 
 ### 起動時の見出しの付け足し
 
@@ -125,7 +131,11 @@
 ### 検索と AI
 
 - 全文検索は、探すたびに裏方がファイルを読む（`TaskStore.search`）。本文を持ち続けない。
+- ノートの点検と被リンクも、呼ばれるたびに裏方がファイルを読む（`TaskStore.lint`・`backlinks`）。結果はファイルに書かない。アプリが書き換えるのは、人が「直す」を押したずれたリンクだけ（`fixLink`。`replaceLinkDestination` でそのリンク先の範囲だけを置き換え、`saveTicket` で読んだ中身と同じときだけ書く）。
+- 点検の「md でコピー」は、裏方で点検し直して md を作り、electron の `clipboard` に書く（`copyLintReport`）。画面の `navigator.clipboard` は、権限をすべて断っているので使えない。画面から任意の文字を受け取る IPC は作らない。
 - AI でタスクを起こすときは、パソコンの Claude Code を `claude -p --tools "" --no-session-persistence --json-schema …` で呼ぶ（`aiTasks.ts`）。文は標準入力で渡し、シェルは通さない。作業フォルダは、呼ぶたびに `%TEMP%` の下に作る空のフォルダにする（Windows はコマンドを作業フォルダから先に探すので、`%TEMP%` そのものにしない）。チケットは作らせず、人が選んだものを `createTicketFromNote` で作る。
+- 設定で Cursor を選んだときは、Cursor CLI を `agent -p --output-format json --mode ask --trust --workspace <空のフォルダ>` で呼ぶ（`--force` は付けない）。道具を断る引数がないので、作業フォルダに全部を断る `.cursor/cli.json`（`CURSOR_DENY_ALL`）を置く。答えの形の引数もないので、JSON Schema を文に書く（`buildPrompt` の `schemaInPrompt`）。Windows では `agent.cmd` をシェルなしで呼べないので、`%LOCALAPPDATA%\cursor-agent\versions\<いちばん新しい版>\node.exe` に `index.js` を渡す（`cursorCommands`）。使う AI は画面から受け取らず、裏方が設定から読む。
+- Cursor CLI は署名のない部品（`*.node`）を使うので、スマート アプリ コントロールが有効な PC では動かない。標準入力で文を渡せるか、ask モードと `cli.json` で道具が止まるかは、まだ実物で確かめていない（偽物の spawn でのテストだけ）。
 
 ## コマンド
 
@@ -171,7 +181,7 @@
 | カレンダー | FullCalendar 7（MITの標準機能のみ） |
 | ガントチャート | SVAR React Gantt（MIT版。有料のPRO機能は使わない） |
 | ファイル監視 | chokidar 6（Node 22.22 以上が必要） |
-| AI でタスクを起こす | Claude Code（`claude -p`。パソコンに入っているものを呼ぶ。同梱しない） |
+| AI でタスクを起こす | Claude Code（`claude -p`）か Cursor CLI（`agent -p`）。設定で選ぶ。パソコンに入っているものを呼ぶ。同梱しない |
 | Node.js | 24 LTS（`.node-version` に記載）。Electron が同梱する Node のメジャー版に合わせる（`@types/node` も同じ） |
 | パッケージマネージャー | npm |
 | テストランナー | Vitest（画面側の往復テストは jsdom） |
