@@ -1,10 +1,11 @@
-// 画面の右上の「＋ 新規」ボタンと、テンプレートを選ぶ ▼
+// 画面の右上の「＋ 新規」ボタンと、テンプレートを選ぶ ▼（上の帯が狭いときは「＋」のアイコンだけ。名前は title と aria-label）
 // ボタン（と Ctrl+N）は前回選んだテンプレートで作る。▼ で選ぶと、それで作り、次からの既定にする
 
 import { useEffect, useRef, useState } from 'react'
+import { Plus } from 'lucide-react'
 
 interface Props {
-  /** ボタンの文字（「＋ 新規」「＋ 新規ノート」） */
+  /** ボタンの文字（「新規」「新規ノート」）。前に ＋ のアイコンを付ける。上の帯が狭いときはアイコンだけにする */
   label: string
   disabled: boolean
   /** 今の既定のテンプレート。null なら標準 */
@@ -53,13 +54,18 @@ function NewButton({
   return (
     <div className="new-button" ref={ref}>
       <button
-        className="primary new-main"
+        className="primary new-main with-icon shrink-3"
         disabled={disabled}
         onClick={() => onCreate(choice)}
-        title={`テンプレート「${choice ?? '標準'}」で作ります`}
+        title={`${label}：テンプレート「${choice ?? '標準'}」で作ります（Ctrl+N）`}
+        aria-label={label}
       >
-        {label}
-        {choice && `（${choice}）`} <kbd>Ctrl+N</kbd>
+        <Plus className="icon" aria-hidden="true" />
+        <span className="btn-label">
+          {label}
+          {choice && <span className="new-choice">（{choice}）</span>}
+        </span>
+        <kbd>Ctrl+N</kbd>
       </button>
       <button
         className="primary new-menu"

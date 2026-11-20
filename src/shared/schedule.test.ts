@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { addDays, calendarItems, ganttRows, ticketSpan, validDate, type GanttRow } from './schedule'
+import {
+  addDays,
+  calendarItems,
+  ganttRows,
+  groupingKey,
+  keyGrouping,
+  ticketSpan,
+  validDate,
+  type GanttRow
+} from './schedule'
 import { DEFAULT_FILTER, type Ticket } from './ticket'
 
 function ticket(partial: Partial<Ticket> & { id: string }): Ticket {
@@ -317,5 +326,40 @@ describe('ganttRows（タグごと）', () => {
       '  c nodate'
     ])
     expect(new Set(rows.map((r) => r.key)).size).toBe(rows.length)
+  })
+
+  it('キーの値ごとにまとめ、そのキーのタグがないチケットは「キーなし」にまとめる', () => {
+    const rows = ganttRows(
+      [
+        ticket({ id: 'a', tags: ['顧客/B社', '急ぎ'], due: '2026-10-20' }),
+        ticket({ id: 'b', tags: ['顧客/A社', '顧客/B社'], start: '2026-10-18', due: '2026-10-25' }),
+        ticket({ id: 'c', tags: ['急ぎ'] })
+      ],
+      DEFAULT_FILTER,
+      keyGrouping('顧客')
+    )
+    expect(outline(rows)).toEqual([
+      'A社 group 2026-10-18~2026-10-25',
+      '  b task 2026-10-18~2026-10-25',
+      'B社 group 2026-10-18~2026-10-25',
+      '  b task 2026-10-18~2026-10-25',
+      '  a milestone 2026-10-20~2026-10-20',
+      '顧客なし nodate',
+      '  c nodate'
+    ])
+    // 見出しの色は、値ではなくタグの全体（顧客/A社）で決める
+    expect(rows.filter((r) => r.kind === 'group').map((r) => r.tag)).toEqual([
+      '顧客/A社',
+      '顧客/B社'
+    ])
+    expect(new Set(rows.map((r) => r.key)).size).toBe(rows.length)
+  })
+})
+
+describe('groupingKey', () => {
+  it('キーの値ごとの指定からキーを取り出す', () => {
+    expect(groupingKey(keyGrouping('顧客'))).toBe('顧客')
+    expect(groupingKey('tag')).toBeNull()
+    expect(groupingKey('parent')).toBeNull()
   })
 })

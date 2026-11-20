@@ -2,6 +2,7 @@ import { describe, expect, it, vi, type Mock } from 'vitest'
 import { IPC } from '../shared/api'
 import {
   decideOnboarding,
+  helpHandlers,
   isExternalUrl,
   normalizeCreateNoteRequest,
   normalizeFromNoteOptions,
@@ -277,12 +278,31 @@ describe('ticketHandlers', () => {
   })
 })
 
+describe('helpHandlers', () => {
+  it('ヘルプの表にある文だけをクリップボードに書く', () => {
+    const write = vi.fn()
+    const handlers = helpHandlers(write)
+    handlers[IPC.copyHelpPrompt]('calendar-busy-days')
+    expect(write).toHaveBeenCalledWith(expect.stringContaining('期限が集中'))
+    expect(() => handlers[IPC.copyHelpPrompt]('任意の文')).toThrow('見つかりません')
+    expect(() => handlers[IPC.copyHelpPrompt](1)).toThrow()
+    expect(write).toHaveBeenCalledTimes(1)
+  })
+})
+
+/** 編集画面の幅を使わないテストで渡す、何もしない設定 */
+const noPaneWidths = {
+  getPaneWidths: () => ({}),
+  savePaneWidth: vi.fn()
+}
+
 /** テンプレートの選択を使わないテストで渡す、何もしない設定 */
 const noTemplateChoice = {
   getTemplateChoice: () => null,
   saveTemplateChoice: vi.fn(),
   getAiService: () => 'claude' as const,
-  saveAiService: vi.fn()
+  saveAiService: vi.fn(),
+  ...noPaneWidths
 }
 
 describe('settingsHandlers', () => {
@@ -314,6 +334,30 @@ describe('settingsHandlers', () => {
       ...noTemplateChoice
     })
     expect(handlers[IPC.getListSort]()).toEqual({ key: 'title', direction: 'asc' })
+  })
+
+  it('編集画面の幅は、知っている画面と使える幅だけを保存する', () => {
+    const savePaneWidth = vi.fn()
+    const handlers = settingsHandlers({
+      getListSort: () => null,
+      saveListSort: vi.fn(),
+      getUserName: () => '',
+      saveUserName: vi.fn(),
+      ...noTemplateChoice,
+      getPaneWidths: () => ({ list: 600 }),
+      savePaneWidth
+    })
+    expect(handlers[IPC.getPaneWidths]()).toEqual({ list: 600 })
+    handlers[IPC.setPaneWidth]('gantt', 500.4)
+    handlers[IPC.setPaneWidth]('list', null)
+    expect(savePaneWidth.mock.calls).toEqual([
+      ['gantt', 500],
+      ['list', null]
+    ])
+    expect(() => handlers[IPC.setPaneWidth]('settings', 500)).toThrow('画面の名前')
+    expect(() => handlers[IPC.setPaneWidth]('list', 100)).toThrow('幅の値')
+    expect(() => handlers[IPC.setPaneWidth]('list', '500')).toThrow('幅の値')
+    expect(savePaneWidth).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -357,7 +401,8 @@ describe('テンプレートとフォルダの指定', () => {
       getTemplateChoice: (kind) => (kind === 'note' ? '議事メモ' : null),
       saveTemplateChoice,
       getAiService: () => 'claude',
-      saveAiService: vi.fn()
+      saveAiService: vi.fn(),
+      ...noPaneWidths
     })
     expect(handlers[IPC.getTemplateChoice]('note')).toBe('議事メモ')
     expect(handlers[IPC.getTemplateChoice]('ticket')).toBeNull()

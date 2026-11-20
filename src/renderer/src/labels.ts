@@ -10,9 +10,11 @@ export const NOTE_TYPE_LABELS: Record<NoteType, string> = {
 
 /** ノートの種類の説明（選ぶ欄のヒントに出す） */
 export const NOTE_TYPE_HINTS: Record<NoteType, string> = {
-  record: 'その時に起きたこと（議事メモ・作業の記録など）。後から書き換えません',
-  knowledge: '今の正しい状態（手順・仕様・今の決まりなど）。変わったら書き換えます',
-  index: 'プロジェクトの入口（目的・今の状態・ノートの一覧）'
+  record:
+    'その時に起きたこと（議事メモ・作業の記録など）。事情が変わっても書き換えず、その時の事実として残します',
+  knowledge:
+    '今の正しい状態（手順・仕様・今の決まりなど）。事情が変わったら書き換えて、今の正しい状態を示します',
+  index: 'プロジェクトの入口（目的・知識の状況・ノートの一覧）。進み具合はチケットに書きます'
 }
 
 export const STATUS_LABELS: Record<Status, string> = {

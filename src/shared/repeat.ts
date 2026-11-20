@@ -6,7 +6,11 @@ import { assigneeField, setFields, replaceBody, type FieldUpdates } from './fron
 import { validDate } from './schedule'
 
 export type RepeatUnit = 'd' | 'w' | 'm'
-export type NthWeek = 1 | 2 | 3 | 4 | 'last'
+/** 第何週か。'last' は最終、'last2'〜'last4' は後ろから2〜4番目 */
+export type NthWeek = 1 | 2 | 3 | 4 | 'last' | 'last2' | 'last3' | 'last4'
+
+/** 月末から何日前まで書けるか（どの月にもある日だけにする。28日の月の1日まで） */
+export const MAX_DAYS_BEFORE_END = 27
 
 export type RepeatRule =
   | { kind: 'daily' }
@@ -16,7 +20,9 @@ export type RepeatRule =
   | { kind: 'weekly'; days: number[] }
   | { kind: 'monthly-day'; day: number }
   | { kind: 'monthly-end' }
-  /** 毎月第 n 曜日。n が 'last' なら最終の曜日 */
+  /** 毎月、月末の days 日前（末日から days 日引いた日。31日の月で 3 なら28日） */
+  | { kind: 'monthly-before-end'; days: number }
+  /** 毎月第 n 曜日。n が 'last' なら最終、'last2'〜'last4' なら後ろから2〜4番目の曜日 */
   | { kind: 'monthly-nth'; n: NthWeek; weekday: number }
   /** 毎年。month は 1〜12 */
   | { kind: 'yearly'; month: number; day: number }
@@ -64,11 +70,18 @@ export function parseRepeat(value: string | null): RepeatRule | null {
     }
     case 'monthly': {
       if (arg === 'end') return { kind: 'monthly-end' }
-      const nth = /^([1-4]|last)([a-z]{3})$/.exec(arg)
+      const beforeEnd = /^end-(\d{1,2})$/.exec(arg)
+      if (beforeEnd) {
+        const days = Number(beforeEnd[1])
+        return days >= 1 && days <= MAX_DAYS_BEFORE_END
+          ? { kind: 'monthly-before-end', days }
+          : null
+      }
+      const nth = /^([1-4]|last[2-4]?)([a-z]{3})$/.exec(arg)
       if (nth) {
         const weekday = weekdayIndex(nth[2])
         if (weekday === null) return null
-        const n = nth[1] === 'last' ? 'last' : (Number(nth[1]) as NthWeek)
+        const n = (nth[1].startsWith('last') ? nth[1] : Number(nth[1])) as NthWeek
         return { kind: 'monthly-nth', n, weekday }
       }
       if (!/^\d{1,2}$/.test(arg)) return null
@@ -112,6 +125,8 @@ export function formatRepeat(rule: RepeatRule): string {
       return `monthly:${rule.day}`
     case 'monthly-end':
       return 'monthly:end'
+    case 'monthly-before-end':
+      return `monthly:end-${rule.days}`
     case 'monthly-nth':
       return `monthly:${rule.n}${WEEKDAY_NAMES[rule.weekday]}`
     case 'yearly':
@@ -123,6 +138,18 @@ export function formatRepeat(rule: RepeatRule): string {
 }
 
 const UNIT_LABELS: Record<RepeatUnit, string> = { d: '日', w: '週', m: 'か月' }
+
+/** 第何週の日本語（「毎月」と曜日の間に入れる） */
+export const NTH_LABELS: Record<string, string> = {
+  1: '第1',
+  2: '第2',
+  3: '第3',
+  4: '第4',
+  last: '最終',
+  last2: '後ろから2番目の',
+  last3: '後ろから3番目の',
+  last4: '後ろから4番目の'
+}
 
 /** 繰り返しを日本語で表す（例：毎月第2火曜） */
 export function describeRepeat(rule: RepeatRule): string {
@@ -137,8 +164,10 @@ export function describeRepeat(rule: RepeatRule): string {
       return `毎月${rule.day}日`
     case 'monthly-end':
       return '毎月末'
+    case 'monthly-before-end':
+      return `毎月、月末の${rule.days}日前`
     case 'monthly-nth':
-      return `毎月${rule.n === 'last' ? '最終' : `第${rule.n}`}${WEEKDAY_LABELS[rule.weekday]}曜`
+      return `毎月${NTH_LABELS[String(rule.n)]}${WEEKDAY_LABELS[rule.weekday]}曜`
     case 'yearly':
       return `毎年${rule.month}月${rule.day}日`
     case 'every':
@@ -175,12 +204,22 @@ function clampedDate(year: number, month: number, day: number): string {
   return toText(new Date(Date.UTC(y, m, Math.min(day, daysInMonth(y, m)))))
 }
 
-/** year 年 month 月（0 始まり。繰り上がりあり）の第 n 曜日。n が 'last' なら最終の曜日 */
+/** year 年 month 月（0 始まり。繰り上がりあり）の、月末の days 日前 */
+function daysBeforeEnd(year: number, month: number, days: number): string {
+  const [y, m] = normalizeMonth(year, month)
+  return toText(new Date(Date.UTC(y, m, daysInMonth(y, m) - days)))
+}
+
+/**
+ * year 年 month 月（0 始まり。繰り上がりあり）の第 n 曜日
+ * n が 'last' なら最終、'last2'〜'last4' なら後ろから2〜4番目の曜日
+ */
 function nthWeekday(year: number, month: number, n: NthWeek, weekday: number): string {
   const [y, m] = normalizeMonth(year, month)
-  if (n === 'last') {
+  if (typeof n === 'string') {
+    const fromEnd = n === 'last' ? 1 : Number(n.slice(4))
     const last = new Date(Date.UTC(y, m, daysInMonth(y, m)))
-    last.setUTCDate(last.getUTCDate() - ((last.getUTCDay() - weekday + 7) % 7))
+    last.setUTCDate(last.getUTCDate() - ((last.getUTCDay() - weekday + 7) % 7) - (fromEnd - 1) * 7)
     return toText(last)
   }
   const first = new Date(Date.UTC(y, m, 1))
@@ -237,6 +276,8 @@ export function nextOccurrence(rule: RepeatRule, anchor: string, completedOn: st
       return firstMonthlyAfter(anchor, (y, m) => clampedDate(y, m, rule.day))
     case 'monthly-end':
       return firstMonthlyAfter(anchor, (y, m) => clampedDate(y, m, 31))
+    case 'monthly-before-end':
+      return firstMonthlyAfter(anchor, (y, m) => daysBeforeEnd(y, m, rule.days))
     case 'monthly-nth':
       return firstMonthlyAfter(anchor, (y, m) => nthWeekday(y, m, rule.n, rule.weekday))
     case 'yearly': {

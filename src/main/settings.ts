@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DEFAULT_AI_SERVICE, asAiService, type AiService } from '../shared/aiService'
 import type { TemplateKind } from '../shared/api'
+import { asPaneWidths, type PaneView, type PaneWidths } from '../shared/paneWidth'
 import { asListSort, type ListSort } from '../shared/ticket'
 
 interface Settings {
@@ -14,6 +15,7 @@ interface Settings {
   lastVersion?: unknown
   templateChoice?: unknown
   aiService?: unknown
+  paneWidths?: unknown
 }
 
 function settingsPath(): string {
@@ -58,6 +60,19 @@ export function getListSort(): ListSort | null {
 
 export function saveListSort(sort: ListSort): void {
   writeSettings({ listSort: sort })
+}
+
+/** 画面ごとの編集画面の幅。動かしていない画面は入らない */
+export function getPaneWidths(): PaneWidths {
+  return asPaneWidths(readSettings().paneWidths)
+}
+
+/** 編集画面の幅を保存する。null ならその画面の幅を消す（初めの幅に戻す） */
+export function savePaneWidth(view: PaneView, width: number | null): void {
+  const widths = getPaneWidths()
+  if (width === null) delete widths[view]
+  else widths[view] = width
+  writeSettings({ paneWidths: widths })
 }
 
 /** 自分の名前（新しく作るチケットの author に入れる）。未設定なら空文字 */

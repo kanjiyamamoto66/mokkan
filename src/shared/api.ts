@@ -3,6 +3,7 @@
 import type { AiService } from './aiService'
 import type { Backlink, LintItem } from './lint'
 import type { Note } from './note'
+import type { PaneView, PaneWidths } from './paneWidth'
 import type { SearchHit, SearchOptions } from './search'
 import type { TagColors } from './tagColor'
 import type { ListSort, Ticket } from './ticket'
@@ -227,6 +228,10 @@ export interface MokkanApi {
   /** 保存した一覧の並び順（個人設定）。保存していなければ null */
   getListSort(): Promise<ListSort | null>
   setListSort(sort: ListSort): Promise<void>
+  /** 画面ごとの編集画面の幅（個人設定）。動かしていない画面は入らない */
+  getPaneWidths(): Promise<PaneWidths>
+  /** 編集画面の幅を保存する。null なら初めの幅に戻す */
+  setPaneWidth(view: PaneView, width: number | null): Promise<void>
   /** 自分の名前（個人設定）。新しく作るチケットの作成者に入れる。未設定なら空文字 */
   getUserName(): Promise<string>
   /** 自分の名前を保存する。前後の空白を除いた、保存した名前を返す */
@@ -260,6 +265,10 @@ export interface MokkanApi {
   fixLink(fileName: string, href: string): Promise<void>
   /** 点検し直し、結果を md の箇条書きにしてクリップボードに入れる（ファイルには書かない）。見つかった件数を返す */
   copyLintReport(): Promise<number>
+  /** ヘルプの「AI に頼む文」（help.ts の id）をクリップボードに入れる */
+  copyHelpPrompt(id: string): Promise<void>
+  /** 今の tasks/ のフォルダの場所をクリップボードに入れる（AI をそこで起動してもらうため） */
+  copyTasksDir(): Promise<void>
   /** 案内を閉じた（または設定を開いた）。今の版を覚え、次からは出さない */
   dismissOnboarding(): Promise<void>
   /** タグの色（色相 0〜359）を tasks/TAGS.md に書く。null なら指定を外す（名前から決める色に戻す） */
@@ -296,6 +305,8 @@ export const IPC = {
   revealFolder: 'mokkan:reveal-folder',
   getListSort: 'mokkan:get-list-sort',
   setListSort: 'mokkan:set-list-sort',
+  getPaneWidths: 'mokkan:get-pane-widths',
+  setPaneWidth: 'mokkan:set-pane-width',
   getUserName: 'mokkan:get-user-name',
   setUserName: 'mokkan:set-user-name',
   setTagColor: 'mokkan:set-tag-color',
@@ -306,6 +317,8 @@ export const IPC = {
   backlinks: 'mokkan:backlinks',
   fixLink: 'mokkan:fix-link',
   copyLintReport: 'mokkan:copy-lint-report',
+  copyHelpPrompt: 'mokkan:copy-help-prompt',
+  copyTasksDir: 'mokkan:copy-tasks-dir',
   suggestTasksFromNote: 'mokkan:suggest-tasks-from-note',
   cancelSuggestTasks: 'mokkan:cancel-suggest-tasks'
 } as const

@@ -46,6 +46,7 @@ import {
 } from '../editor/toolbar'
 import { pendingSaves } from '../editor/closing'
 import Backlinks from './Backlinks'
+import ProjectTickets from './ProjectTickets'
 import EditorToolbar from './EditorToolbar'
 import LinkSuggestList from './LinkSuggestList'
 import NoteProperties, { type NoteBodyInfo } from './NoteProperties'
@@ -65,6 +66,8 @@ interface Props {
   /** タグの色（TAGS.md） */
   tagColors: TagColors
   onOpen: (fileName: string) => void
+  /** そのタグで絞り込んだチケットの一覧に切り替える（入口のノートの「一覧で見る」） */
+  onShowTag: (tag: string) => void
   /** 直前に開いていたチケットやノートに戻る。戻る先がなければ undefined */
   onBack?: () => void
   /** 戻る先のタイトル（ボタンの説明に出す） */
@@ -106,6 +109,7 @@ function TicketEditor({
   noteFolders,
   tagColors,
   onOpen,
+  onShowTag,
   onBack,
   backLabel,
   onClose,
@@ -853,6 +857,15 @@ function TicketEditor({
           noteBodyInfo={noteBodyInfo}
           folders={noteFolders}
           onMove={(folder) => void moveNote(folder)}
+        />
+      )}
+      {note && isNote && (
+        <ProjectTickets
+          note={note}
+          tickets={tickets}
+          today={formatDate(new Date())}
+          onOpen={onOpen}
+          onShowTag={onShowTag}
         />
       )}
       {(ticket || note) && (

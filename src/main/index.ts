@@ -9,17 +9,20 @@ import {
   getAiService,
   getLastVersion,
   getListSort,
+  getPaneWidths,
   getTasksDir,
   getTemplateChoice,
   getUserName,
   saveAiService,
   saveLastVersion,
   saveListSort,
+  savePaneWidth,
   saveTasksDir,
   saveTemplateChoice,
   saveUserName
 } from './settings'
 import {
+  helpHandlers,
   isExternalUrl,
   normalizeCreateNoteRequest,
   normalizeFromNoteOptions,
@@ -153,9 +156,12 @@ function registerIpc(): void {
 
   const handlers = {
     ...ticketHandlers(requireStore, (path) => shell.openPath(path)),
+    ...helpHandlers((text) => clipboard.writeText(text)),
     ...settingsHandlers({
       getListSort,
       saveListSort,
+      getPaneWidths,
+      savePaneWidth,
       getUserName,
       saveUserName,
       getTemplateChoice,
@@ -189,6 +195,13 @@ function registerIpc(): void {
     return items.length
   })
 
+  // 文は画面から受け取らず、裏方が今の tasks/ の場所を書く
+  ipcMain.handle(IPC.copyTasksDir, () => {
+    const tasksDir = requireStore().getState().tasksDir
+    if (!tasksDir) throw new Error('tasks/ のフォルダが選ばれていません')
+    clipboard.writeText(tasksDir)
+  })
+
   ipcMain.handle(IPC.revealFolder, async () => {
     const tasksDir = requireStore().getState().tasksDir
     if (tasksDir) await shell.openPath(tasksDir)
@@ -204,6 +217,10 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
+    // 上の帯は、ボタンをすべてアイコンだけにすると画面の幅 700px まで1行に収まる。
+    // それより狭めると「＋ 新規」が画面の外に出るので、窓はここまでにする。minWidth は枠を含む幅なので、
+    // Windows の枠（左右で十数 px）の分を足しておく
+    minWidth: 720,
     show: false,
     autoHideMenuBar: true,
     title: windowTitle(),

@@ -1,4 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  CalendarDays,
+  ChartGantt,
+  CircleHelp,
+  FolderInput,
+  FolderOpen,
+  List,
+  NotebookText,
+  Settings,
+  type LucideIcon
+} from 'lucide-react'
 import type { AppState, Onboarding, TemplateKind, TemplateList } from '../../shared/api'
 import {
   DEFAULT_FILTER,
@@ -12,7 +23,8 @@ import {
   type ListSort
 } from '../../shared/ticket'
 import { listNotes, type NoteType } from '../../shared/note'
-import { calendarItems, ganttRows, type GanttGrouping } from '../../shared/schedule'
+import { calendarItems, ganttRows, groupingKey, type GanttGrouping } from '../../shared/schedule'
+import { tagKeys } from '../../shared/tagKey'
 import CalendarView from './components/CalendarView'
 import FilterBar from './components/FilterBar'
 import GanttView from './components/GanttView'
@@ -28,8 +40,12 @@ import NoteFolderTree from './components/NoteFolderTree'
 import NewButton from './components/NewButton'
 import TicketList from './components/TicketList'
 import WarningList from './components/WarningList'
+import PaneSplitter from './components/PaneSplitter'
+import HelpDialog from './components/HelpDialog'
+import type { HelpTopic } from '../../shared/help'
+import type { PaneView, PaneWidths } from '../../shared/paneWidth'
 
-type View = 'list' | 'calendar' | 'gantt' | 'notes'
+type View = PaneView
 
 /** 「← 戻る」で覚えておく数 */
 const MAX_HISTORY = 50
@@ -40,6 +56,14 @@ const VIEW_LABELS: Record<View, string> = {
   calendar: 'カレンダー',
   gantt: 'ガント',
   notes: 'ノート'
+}
+
+/** 上の帯の、表示の切り替えのアイコン（帯が狭いときはアイコンだけにする） */
+const VIEW_ICONS: Record<View, LucideIcon> = {
+  list: List,
+  calendar: CalendarDays,
+  gantt: ChartGantt,
+  notes: NotebookText
 }
 
 /** 編集画面で開いているチケット */
@@ -77,10 +101,48 @@ function App(): React.JSX.Element {
       .catch((e) => console.error('[mokkan] 並び順の設定を読めませんでした', e))
   }, [])
 
+  // 画面ごとの編集画面の幅（個人設定）。境目をドラッグして変えたもの
+  const [paneWidths, setPaneWidths] = useState<PaneWidths>({})
+  useEffect(() => {
+    window.api
+      .getPaneWidths()
+      .then((saved) => setPaneWidths((now) => ({ ...saved, ...now })))
+      .catch((e) => console.error('[mokkan] 編集画面の幅の設定を読めませんでした', e))
+  }, [])
+  const resizeEditor = useCallback(
+    (width: number | null) =>
+      setPaneWidths((now) => {
+        const next = { ...now }
+        if (width === null) delete next[view]
+        else next[view] = width
+        return next
+      }),
+    [view]
+  )
+  const commitEditorWidth = useCallback(
+    (width: number | null) => {
+      resizeEditor(width)
+      window.api
+        .setPaneWidth(view, width)
+        .catch((e) => console.error('[mokkan] 編集画面の幅を保存できませんでした', e))
+    },
+    [view, resizeEditor]
+  )
+  const editorWidth = paneWidths[view] ?? null
+
   // 自分の名前（個人設定）。担当者の絞り込みの「自分」に使う
   const [userName, setUserName] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [archiveOpen, setArchiveOpen] = useState(false)
+  /** 開いているヘルプのタブ。閉じていれば null */
+  const [helpTopic, setHelpTopic] = useState<HelpTopic | null>(null)
+  /** 初めての起動で、名前の設定の後に「はじめに」（AI の案内）を出すか */
+  const startGuidePending = useRef(false)
+  const showStartGuideIfPending = useCallback(() => {
+    if (!startGuidePending.current) return
+    startGuidePending.current = false
+    setHelpTopic('start')
+  }, [])
   useEffect(() => {
     window.api
       .getUserName()
@@ -96,7 +158,11 @@ function App(): React.JSX.Element {
     onboardingChecked.current = true
     window.api
       .getOnboarding()
-      .then(setOnboarding)
+      .then((result) => {
+        // 初めての起動では、名前の設定（または帯を閉じた）後に「はじめに」を出す
+        if (result === 'first') startGuidePending.current = true
+        setOnboarding(result)
+      })
       .catch((e) => console.error('[mokkan] 設定の案内を確かめられませんでした', e))
   }, [folderReady])
   /** 案内を閉じる（今の版を覚え、次からは出さない） */
@@ -106,6 +172,11 @@ function App(): React.JSX.Element {
       .dismissOnboarding()
       .catch((e) => console.error('[mokkan] 設定の案内を閉じられませんでした', e))
   }, [])
+  /** 案内の帯の「閉じる」。初めての起動なら、続けて「はじめに」を出す */
+  const closeOnboardingBanner = useCallback(() => {
+    dismissOnboarding()
+    showStartGuideIfPending()
+  }, [dismissOnboarding, showStartGuideIfPending])
   const openSettings = useCallback(() => {
     setSettingsOpen(true)
     if (onboarding) dismissOnboarding()
@@ -324,9 +395,16 @@ function App(): React.JSX.Element {
     () => (view === 'calendar' ? calendarItems(tickets, filter, today) : []),
     [view, tickets, filter, today]
   )
+  // ガントでキーの値ごとにまとめられるキー。ガントに出るのはチケットだけなので、ノートのタグは含めない
+  const ganttKeys = useMemo(() => tagKeys(tickets.flatMap((t) => t.tags)), [tickets])
+  // キーの値ごとにまとめていたキーのタグがなくなったら、タグごとに戻す
+  const ganttGrouping = useMemo(() => {
+    const key = groupingKey(grouping)
+    return key !== null && !ganttKeys.includes(key) ? 'tag' : grouping
+  }, [grouping, ganttKeys])
   const rows = useMemo(
-    () => (view === 'gantt' ? ganttRows(tickets, filter, grouping, today) : []),
-    [view, tickets, filter, grouping, today]
+    () => (view === 'gantt' ? ganttRows(tickets, filter, ganttGrouping, today) : []),
+    [view, tickets, filter, ganttGrouping, today]
   )
   const tagColors = useMemo(() => state?.tagColors ?? {}, [state])
   const warnings = useMemo(() => {
@@ -393,38 +471,66 @@ function App(): React.JSX.Element {
         <h1 className="brand">mokkan</h1>
         {ready && (
           <nav className="views">
-            {VIEWS.map((v) => (
-              <button
-                key={v}
-                className={view === v ? 'view on' : 'view'}
-                onClick={() => setView(v)}
-              >
-                {VIEW_LABELS[v]}
-              </button>
-            ))}
+            {VIEWS.map((v) => {
+              const Icon = VIEW_ICONS[v]
+              return (
+                <button
+                  key={v}
+                  className={view === v ? 'view with-icon shrink-4 on' : 'view with-icon shrink-4'}
+                  onClick={() => setView(v)}
+                  title={VIEW_LABELS[v]}
+                  aria-label={VIEW_LABELS[v]}
+                >
+                  <Icon className="icon" aria-hidden="true" />
+                  <span className="btn-label">{VIEW_LABELS[v]}</span>
+                </button>
+              )
+            })}
           </nav>
         )}
         {ready && <SearchBox onOpen={openFromSearch} />}
         <div className="folder" title={state.tasksDir ?? ''}>
-          {state.tasksDir ?? 'フォルダ未設定'}
+          <span className="folder-path">{state.tasksDir ?? 'フォルダ未設定'}</span>
         </div>
         {state.tasksDir && (
-          <button className="ghost" onClick={() => run(() => window.api.revealFolder())}>
-            フォルダを開く
+          <button
+            className="ghost with-icon shrink-2"
+            onClick={() => run(() => window.api.revealFolder())}
+            title={`フォルダを開く：${state.tasksDir}`}
+            aria-label="フォルダを開く"
+          >
+            <FolderOpen className="icon" aria-hidden="true" />
+            <span className="btn-label">フォルダを開く</span>
           </button>
         )}
-        <button className="ghost" onClick={() => run(() => window.api.chooseFolder())}>
-          フォルダを変える
+        <button
+          className="ghost with-icon shrink-2"
+          onClick={() => run(() => window.api.chooseFolder())}
+          title="フォルダを変える"
+          aria-label="フォルダを変える"
+        >
+          <FolderInput className="icon" aria-hidden="true" />
+          <span className="btn-label">フォルダを変える</span>
         </button>
         <button
-          className={onboarding ? 'ghost has-dot' : 'ghost'}
+          className={onboarding ? 'ghost with-icon shrink-3 has-dot' : 'ghost with-icon shrink-3'}
           onClick={openSettings}
-          title={onboarding ? '設定で確かめてほしいことがあります' : undefined}
+          title={onboarding ? '設定（確かめてほしいことがあります）' : '設定'}
+          aria-label="設定"
         >
-          設定
+          <Settings className="icon" aria-hidden="true" />
+          <span className="btn-label">設定</span>
+        </button>
+        <button
+          className="ghost with-icon help-button"
+          onClick={() => setHelpTopic(view)}
+          title="ヘルプ：この画面でできることと、手元の AI に頼めること"
+          aria-label="ヘルプ"
+        >
+          <CircleHelp className="icon" aria-hidden="true" />
         </button>
         <NewButton
-          label={view === 'notes' ? '＋ 新規ノート' : '＋ 新規'}
+          label={view === 'notes' ? '新規ノート' : '新規'}
           disabled={!ready}
           choice={choice[newKind]}
           templates={newKind === 'note' ? templates.notes : templates.tickets}
@@ -453,7 +559,7 @@ function App(): React.JSX.Element {
             <button className="primary" onClick={openSettings}>
               設定を開く
             </button>
-            <button className="ghost" onClick={dismissOnboarding}>
+            <button className="ghost" onClick={closeOnboardingBanner}>
               閉じる
             </button>
           </span>
@@ -472,7 +578,19 @@ function App(): React.JSX.Element {
       )}
 
       {ready ? (
-        <div className={['panes', `view-${view}`, selected ? 'with-editor' : ''].join(' ')}>
+        <div
+          className={[
+            'panes',
+            `view-${view}`,
+            selected ? 'with-editor' : '',
+            editorWidth !== null ? 'custom-width' : ''
+          ].join(' ')}
+          style={
+            editorWidth !== null
+              ? ({ '--editor-width': `${editorWidth}px` } as React.CSSProperties)
+              : undefined
+          }
+        >
           {view === 'notes' && (
             <NoteFolderTree
               folders={noteFolders}
@@ -499,6 +617,17 @@ function App(): React.JSX.Element {
                 onChange={setFilter}
                 tagsOnly={view === 'notes'}
                 tagColors={tagColors}
+                actions={
+                  view === 'notes' && (
+                    <button
+                      className="ghost"
+                      onClick={() => setLintOpen(true)}
+                      title="切れたリンク・見直していない知識・入口から外れた知識などを探します"
+                    >
+                      点検…
+                    </button>
+                  )
+                }
               />
             )}
             {view === 'list' && (
@@ -551,13 +680,6 @@ function App(): React.JSX.Element {
                   <span>
                     {visibleNotes.length} 件を表示中（全 {notes.length} 件）
                   </span>
-                  <button
-                    className="ghost"
-                    onClick={() => setLintOpen(true)}
-                    title="切れたリンク・見直していない知識・入口から外れた知識などを探します"
-                  >
-                    点検…
-                  </button>
                 </footer>
               </>
             )}
@@ -573,7 +695,8 @@ function App(): React.JSX.Element {
             {view === 'gantt' && (
               <GanttView
                 rows={rows}
-                grouping={grouping}
+                grouping={ganttGrouping}
+                groupKeys={ganttKeys}
                 today={today}
                 selected={selected?.fileName ?? null}
                 compact={selected !== null}
@@ -585,6 +708,13 @@ function App(): React.JSX.Element {
             )}
           </main>
           {selected && (
+            <PaneSplitter
+              width={editorWidth}
+              onResize={resizeEditor}
+              onCommit={commitEditorWidth}
+            />
+          )}
+          {selected && (
             <TicketEditor
               key={selected.fileName}
               fileName={selected.fileName}
@@ -594,6 +724,12 @@ function App(): React.JSX.Element {
               noteFolders={noteFolders}
               tagColors={tagColors}
               onOpen={open}
+              onShowTag={(tag) => {
+                // 入口のノートの「一覧で見る」：そのプロジェクトのタグの未完了のチケットを一覧に出す
+                // 入口に出したもの（projectOpenTickets）と同じになるよう、ほかの絞り込みは外し、着手日が先のものも出す
+                setFilter({ ...DEFAULT_FILTER, tags: [tag], showFutureStart: true })
+                setView('list')
+              }}
               onBack={backTarget ? goBack : undefined}
               backLabel={backTarget ? titleOfKey.get(backTarget) || '（タイトルなし）' : undefined}
               onClose={close}
@@ -619,12 +755,23 @@ function App(): React.JSX.Element {
         />
       )}
 
+      {helpTopic && (
+        <HelpDialog
+          initial={helpTopic}
+          tasksDir={state.tasksDir}
+          onClose={() => setHelpTopic(null)}
+        />
+      )}
+
       {settingsOpen && (
         <SettingsDialog
           userName={userName}
           folderReady={ready}
           onSave={saveUserName}
-          onClose={() => setSettingsOpen(false)}
+          onClose={() => {
+            setSettingsOpen(false)
+            showStartGuideIfPending()
+          }}
         />
       )}
     </div>

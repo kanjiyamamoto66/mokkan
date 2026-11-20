@@ -8,6 +8,7 @@ import AiTasksDialog from './AiTasksDialog'
 import {
   NOTE_TYPES,
   hasBackLink,
+  noteTypeChange,
   parseHomeworkItem,
   ticketsFromNote,
   type Note,
@@ -185,13 +186,11 @@ function NoteProperties({
           <span>種類</span>
           <select
             value={note.type}
-            onChange={(e) => {
-              const type = e.target.value as NoteType
-              // 知識にしたときに見直した日がなければ、今日を入れる（書いた時点で見直したとみなす）
-              const reviewed =
-                type === 'knowledge' && !note.reviewed ? { reviewed: formatDate(new Date()) } : {}
-              onChange({ type, ...reviewed })
-            }}
+            onChange={(e) =>
+              onChange(
+                noteTypeChange(e.target.value as NoteType, note.reviewed, formatDate(new Date()))
+              )
+            }
           >
             {NOTE_TYPES.map((t) => (
               <option key={t} value={t}>
@@ -262,6 +261,7 @@ function NoteProperties({
             onChange={(tags) => onChange({ tags })}
             colors={tagColors}
             onColorChange={saveTagColor}
+            keyValue
           />
         </div>
       </fieldset>

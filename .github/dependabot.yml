@@ -14,6 +14,10 @@ updates:
       # Electron の Node が上がったら、ここを外して @types/node を上げる
       - dependency-name: '@types/node'
         update-types: ['version-update:semver-major']
+      # ESLint 10 には eslint-plugin-react がまだ対応していない（peerDependencies が ^9.7 まで）。
+      # eslint-plugin-react が対応したら、ここを外して eslint を上げる
+      - dependency-name: 'eslint'
+        update-types: ['version-update:semver-major']
     groups:
       # メジャーでない更新は1つの PR にまとめる
       minor-and-patch:

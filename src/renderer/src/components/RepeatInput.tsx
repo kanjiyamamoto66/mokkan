@@ -4,7 +4,9 @@
 
 import { useState } from 'react'
 import {
+  MAX_DAYS_BEFORE_END,
   MAX_INTERVAL,
+  NTH_LABELS,
   WEEKDAY_LABELS,
   describeRepeat,
   formatRepeat,
@@ -30,7 +32,8 @@ const KIND_LABELS: Record<Kind, string> = {
   weekly: '毎週（曜日を選ぶ）',
   'monthly-day': '毎月（日を選ぶ）',
   'monthly-end': '毎月（月末）',
-  'monthly-nth': '毎月（第◯曜日）',
+  'monthly-before-end': '毎月（月末の◯日前）',
+  'monthly-nth': '毎月（第◯曜日・後ろから◯番目の曜日）',
   yearly: '毎年',
   every: '◯日・週・か月ごと',
   after: '完了から◯日・週・か月後',
@@ -43,27 +46,30 @@ const KINDS: Kind[] = [
   'weekly',
   'monthly-day',
   'monthly-end',
+  'monthly-before-end',
   'monthly-nth',
   'yearly',
   'every',
   'after'
 ]
 const UNIT_LABELS: Record<RepeatUnit, string> = { d: '日', w: '週', m: 'か月' }
-const NTH_OPTIONS: { value: NthWeek; label: string }[] = [
-  { value: 1, label: '第1' },
-  { value: 2, label: '第2' },
-  { value: 3, label: '第3' },
-  { value: 4, label: '第4' },
-  { value: 'last', label: '最終' }
-]
+const NTH_VALUES: NthWeek[] = [1, 2, 3, 4, 'last', 'last2', 'last3', 'last4']
 
-/** 繰り返しを当てはめる日（なければ今日）の年月日と曜日 */
-function baseDate(anchor: string | null): { month: number; day: number; weekday: number } {
+/** 繰り返しを当てはめる日（なければ今日）の年月日と曜日、その月の日数 */
+function baseDate(anchor: string | null): {
+  month: number
+  day: number
+  weekday: number
+  monthDays: number
+} {
   const d = anchor && /^\d{4}-\d{2}-\d{2}$/.test(anchor) ? new Date(`${anchor}T00:00:00Z`) : null
-  const date = d && !Number.isNaN(d.getTime()) ? d : new Date()
-  return d
-    ? { month: date.getUTCMonth() + 1, day: date.getUTCDate(), weekday: date.getUTCDay() }
-    : { month: date.getMonth() + 1, day: date.getDate(), weekday: date.getDay() }
+  const valid = d && !Number.isNaN(d.getTime()) ? d : null
+  const now = new Date()
+  const [year, month, day, weekday] = valid
+    ? [valid.getUTCFullYear(), valid.getUTCMonth(), valid.getUTCDate(), valid.getUTCDay()]
+    : [now.getFullYear(), now.getMonth(), now.getDate(), now.getDay()]
+  const monthDays = new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
+  return { month: month + 1, day, weekday, monthDays }
 }
 
 /** 種類を選んだときの初期値（着手日、なければ期限の曜日や日に合わせる） */
@@ -78,6 +84,11 @@ function defaultRule(kind: Kind, anchor: string | null): RepeatRule | null {
       return { kind, days: [base.weekday] }
     case 'monthly-day':
       return { kind, day: base.day }
+    case 'monthly-before-end': {
+      // 当てはめる日が月末の何日前かに合わせる（月末そのものや27日より前なら1日前）
+      const days = base.monthDays - base.day
+      return { kind, days: days >= 1 && days <= MAX_DAYS_BEFORE_END ? days : 1 }
+    }
     case 'monthly-nth': {
       const n = Math.ceil(base.day / 7)
       return { kind, n: n <= 4 ? (n as NthWeek) : 'last', weekday: base.weekday }
@@ -229,21 +240,32 @@ function RepeatInput({ value, anchor, onChange }: Props): React.JSX.Element {
           </span>
         )}
 
+        {rule?.kind === 'monthly-before-end' && (
+          <span className="repeat-parts">
+            月末の
+            <NumberField
+              value={rule.days}
+              max={MAX_DAYS_BEFORE_END}
+              label="月末の何日前"
+              onCommit={(days) => set({ ...rule, days })}
+            />
+            日前
+          </span>
+        )}
+
         {rule?.kind === 'monthly-nth' && (
           <span className="repeat-parts">
             <select
               aria-label="第何週"
               value={String(rule.n)}
-              onChange={(e) =>
-                set({
-                  ...rule,
-                  n: e.target.value === 'last' ? 'last' : (Number(e.target.value) as NthWeek)
-                })
-              }
+              onChange={(e) => {
+                const v = e.target.value
+                set({ ...rule, n: (v.startsWith('last') ? v : Number(v)) as NthWeek })
+              }}
             >
-              {NTH_OPTIONS.map((o) => (
-                <option key={o.value} value={String(o.value)}>
-                  {o.label}
+              {NTH_VALUES.map((n) => (
+                <option key={n} value={String(n)}>
+                  {NTH_LABELS[String(n)].replace(/の$/, '')}
                 </option>
               ))}
             </select>

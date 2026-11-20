@@ -9,7 +9,7 @@
 import { Gantt, Willow, WillowDark, type IApi, type ITask } from '@svar-ui/react-gantt'
 import '@svar-ui/react-gantt/all.css'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { addDays, type GanttGrouping, type GanttRow } from '../../../shared/schedule'
+import { addDays, keyGrouping, type GanttGrouping, type GanttRow } from '../../../shared/schedule'
 import { tagHue, type TagColors } from '../../../shared/tagColor'
 import { formatDate, type Status } from '../../../shared/ticket'
 import { tagStyle } from '../tagStyle'
@@ -28,6 +28,8 @@ interface Props {
   tagColors: TagColors
   /** 凡例に出すタグ */
   tags: string[]
+  /** 「◯◯ごと」でまとめられるキー（チケットのタグのキー。ノートだけにあるキーは含めない） */
+  groupKeys: string[]
   onGroupingChange: (grouping: GanttGrouping) => void
   onOpen: (fileName: string) => void
 }
@@ -71,6 +73,7 @@ function GanttView({
   compact,
   tagColors,
   tags,
+  groupKeys,
   onGroupingChange,
   onOpen
 }: Props): React.JSX.Element {
@@ -271,6 +274,17 @@ function GanttView({
             onClick={() => onGroupingChange(g)}
           >
             {g === 'parent' ? '親チケットごと' : 'タグごと'}
+          </button>
+        ))}
+        {/* キーのあるタグ（顧客/A社）があれば、キーの値ごとにもまとめられる */}
+        {groupKeys.map((key) => (
+          <button
+            key={`key:${key}`}
+            className={grouping === keyGrouping(key) ? 'chip on' : 'chip'}
+            title={`「${key}/…」のタグの値ごとにまとめる`}
+            onClick={() => onGroupingChange(keyGrouping(key))}
+          >
+            {key}ごと
           </button>
         ))}
         <Legend tags={tags} tagColors={tagColors} />

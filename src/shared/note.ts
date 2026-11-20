@@ -4,9 +4,11 @@
 import { parse } from 'yaml'
 import { replaceBody } from './frontmatter'
 import { validDate } from './schedule'
+import { matchesTags } from './tagKey'
 import {
   asString,
   asTags,
+  compareTickets,
   idFromFileName,
   splitFrontmatter,
   titleFromBody,
@@ -24,7 +26,7 @@ export const COMMON_FOLDER = '共通'
  * ノートの種類（frontmatter の `type`）
  * - record：記録（議事メモ・作業の記録など。その時に起きたこと。書き換えない）
  * - knowledge：知識（手順・仕様・今の決まりなど。今の正しい状態。変わったら書き換える）
- * - index：入口（プロジェクトの目的・今の状態・ノートの一覧）
+ * - index：入口（プロジェクトの目的・知識の状況・ノートの一覧。進み具合はチケットに持たせる）
  */
 export const NOTE_TYPES = ['record', 'knowledge', 'index'] as const
 export type NoteType = (typeof NOTE_TYPES)[number]
@@ -125,6 +127,20 @@ export function projectTag(folder: string): string | null {
   return top === '' || top === COMMON_FOLDER ? null : top
 }
 
+/**
+ * ノートの種類を変えるときに書き換える項目
+ * - 知識にしたとき、見直した日がなければ今日を入れる（書いた時点で見直したとみなす）
+ * - 知識から別の種類にしたとき、見直した日を空にする（`reviewed` は知識のノートにだけ書く。行は残す）
+ */
+export function noteTypeChange(
+  type: NoteType,
+  reviewed: string | null,
+  today: string
+): { type: NoteType; reviewed?: string | null } {
+  if (type === 'knowledge') return reviewed ? { type } : { type, reviewed: today }
+  return reviewed ? { type, reviewed: null } : { type }
+}
+
 function asNoteType(value: unknown): NoteType {
   return NOTE_TYPES.find((t) => t === value) ?? 'record'
 }
@@ -204,7 +220,7 @@ export interface NoteFilter {
 export function listNotes(notes: Note[], filter: Partial<NoteFilter> = {}): Note[] {
   const { tags = [], folder = '', types = [] } = filter
   return notes
-    .filter((n) => tags.length === 0 || n.tags.some((t) => tags.includes(t)))
+    .filter((n) => matchesTags(n.tags, tags))
     .filter((n) => isInFolder(n.folder, folder))
     .filter((n) => types.length === 0 || types.includes(n.type))
     .sort((a, b) => {
@@ -217,6 +233,31 @@ export function listNotes(notes: Note[], filter: Partial<NoteFilter> = {}): Note
       }
       return (b.id ?? b.fileName).localeCompare(a.id ?? a.fileName)
     })
+}
+
+/**
+ * 入口のノートのプロジェクトのタグ。プロジェクトのフォルダ（notes/ の直下のフォルダ。共通/ を除く）の
+ * 直下にある `type: index` のノートだけ。それ以外は null
+ */
+export function indexProjectTag(note: Pick<Note, 'type' | 'folder'>): string | null {
+  if (note.type !== 'index' || note.folder.includes('/')) return null
+  return projectTag(note.folder)
+}
+
+/**
+ * 入口のノートに出す、そのプロジェクトの未完了のチケット（プロジェクトのタグが付いたもの）
+ * 期限の近い順（期限のないものは最後）。アーカイブしたものと完了したものは除く
+ * プロジェクトの進み具合は入口のノートに書かず、チケットだけに持たせるため、入口からたどれるようにする
+ */
+export function projectOpenTickets(
+  note: Pick<Note, 'type' | 'folder'>,
+  tickets: Ticket[]
+): Ticket[] {
+  const tag = indexProjectTag(note)
+  if (tag === null) return []
+  return tickets
+    .filter((t) => !t.archived && t.status !== 'done' && t.tags.includes(tag))
+    .sort(compareTickets)
 }
 
 /** このノートから起こしたチケット（`source` がこのノートの id のもの）。アーカイブしたものも含む */

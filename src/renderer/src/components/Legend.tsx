@@ -1,4 +1,4 @@
-// カレンダーとガントの凡例。「?」ボタンを押したときだけ出す（色の意味の決まりは docs/spec.md「色の意味」）
+// カレンダーとガントの凡例。「凡例」ボタンを押したときだけ出す（上の帯のヘルプの「？」と見分けるため、記号でなく文字にする）（色の意味の決まりは docs/spec.md「色の意味」）
 
 import { useEffect, useRef, useState } from 'react'
 import { STATUSES, type Priority } from '../../../shared/ticket'
@@ -41,11 +41,10 @@ function Legend({ tags, tagColors }: Props): React.JSX.Element {
         type="button"
         className={open ? 'legend-toggle on' : 'legend-toggle'}
         title="色の意味"
-        aria-label="色の意味"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       >
-        ?
+        凡例
       </button>
       {open && (
         <div className="legend-panel" role="dialog" aria-label="色の意味">

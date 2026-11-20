@@ -8,6 +8,8 @@ import {
 import { asAiService, type AiService } from '../shared/aiService'
 import { isSafeNoteFolder } from '../shared/note'
 import { validDate } from '../shared/schedule'
+import { helpPromptText } from '../shared/help'
+import { asEditorWidth, isPaneView, type PaneView, type PaneWidths } from '../shared/paneWidth'
 import { asListSort, type ListSort } from '../shared/ticket'
 import type { TaskStore } from './taskStore'
 
@@ -341,9 +343,25 @@ export function onboardingHandlers(deps: {
   }
 }
 
+/**
+ * ヘルプの IPC のハンドラー。画面からは文の id だけを受け取り、文は help.ts の表から引いて書く
+ * （画面から任意の文字を受け取ってクリップボードに書かせない）
+ */
+export function helpHandlers(writeClipboard: (text: string) => void): Record<string, IpcHandler> {
+  return {
+    [IPC.copyHelpPrompt]: (id) => {
+      const text = helpPromptText(requireString(id, 'id'))
+      if (text === null) throw new Error('ヘルプの文が見つかりません')
+      writeClipboard(text)
+    }
+  }
+}
+
 interface SettingsStore {
   getListSort: () => ListSort | null
   saveListSort: (sort: ListSort) => void
+  getPaneWidths: () => PaneWidths
+  savePaneWidth: (view: PaneView, width: number | null) => void
   getUserName: () => string
   saveUserName: (userName: string) => void
   getTemplateChoice: (kind: TemplateKind) => string | null
@@ -361,6 +379,17 @@ export function settingsHandlers(settings: SettingsStore): Record<string, IpcHan
       const valid = asListSort(sort)
       if (!valid) throw new Error('並び順の値が正しくありません')
       settings.saveListSort(valid)
+    },
+
+    [IPC.getPaneWidths]: () => settings.getPaneWidths(),
+
+    // 知っている画面と、下限から上限までの幅だけを受け付ける（null は初めの幅に戻す）
+    [IPC.setPaneWidth]: (view, width) => {
+      if (!isPaneView(view)) throw new Error('画面の名前が正しくありません')
+      if (width === null) return settings.savePaneWidth(view, null)
+      const valid = asEditorWidth(width)
+      if (valid === null) throw new Error('幅の値が正しくありません')
+      settings.savePaneWidth(view, valid)
     },
 
     [IPC.getUserName]: () => settings.getUserName(),

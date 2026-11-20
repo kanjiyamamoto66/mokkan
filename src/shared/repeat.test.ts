@@ -55,6 +55,10 @@ describe('parseRepeat / formatRepeat', () => {
     'monthly:end',
     'monthly:2tue',
     'monthly:lastfri',
+    'monthly:last2fri',
+    'monthly:last4mon',
+    'monthly:end-1',
+    'monthly:end-27',
     'yearly:12-25',
     'yearly:02-29',
     'every:2d',
@@ -77,6 +81,12 @@ describe('parseRepeat / formatRepeat', () => {
     'monthly:32',
     'monthly:5tue',
     'monthly:2xyz',
+    'monthly:last1fri',
+    'monthly:last5fri',
+    'monthly:end-0',
+    'monthly:end-28',
+    'monthly:end-',
+    'monthly:end+3',
     'yearly:13-01',
     'yearly:02-30',
     'yearly:2-3',
@@ -100,6 +110,8 @@ describe('parseRepeat / formatRepeat', () => {
     expect(describe('weekly:mon,thu')).toBe('毎週月・木曜')
     expect(describe('monthly:2tue')).toBe('毎月第2火曜')
     expect(describe('monthly:lastfri')).toBe('毎月最終金曜')
+    expect(describe('monthly:last2fri')).toBe('毎月後ろから2番目の金曜')
+    expect(describe('monthly:end-3')).toBe('毎月、月末の3日前')
     expect(describe('yearly:12-25')).toBe('毎年12月25日')
     expect(describe('every:2w')).toBe('2週ごと')
     expect(describe('after:2w')).toBe('完了から2週間後')
@@ -152,6 +164,26 @@ describe('nextOccurrence', () => {
     expect(next('monthly:lastfri', '2026-12-31')).toBe('2027-01-29')
     // 第4曜日はどの月にもある
     expect(next('monthly:4sun', '2027-01-31')).toBe('2027-02-28')
+  })
+
+  it('毎月、後ろから n 番目の曜日', () => {
+    // 2026年10月の金曜は 2・9・16・23・30日、11月は 6・13・20・27日
+    expect(next('monthly:last2fri', '2026-10-01')).toBe('2026-10-23')
+    expect(next('monthly:last2fri', '2026-10-23')).toBe('2026-11-20')
+    expect(next('monthly:last4fri', '2026-10-01')).toBe('2026-10-09')
+    expect(next('monthly:last4fri', '2026-10-09')).toBe('2026-11-06')
+    // 2027年1月の最終金曜は29日、後ろから2番目は22日
+    expect(next('monthly:last2fri', '2026-12-31')).toBe('2027-01-22')
+  })
+
+  it('毎月、月末の n 日前（末日から n 日引いた日）', () => {
+    expect(next('monthly:end-3', '2026-10-01')).toBe('2026-10-28')
+    expect(next('monthly:end-3', '2026-10-28')).toBe('2026-11-27')
+    expect(next('monthly:end-3', '2027-01-28')).toBe('2027-02-25')
+    expect(next('monthly:end-3', '2028-01-28')).toBe('2028-02-26') // うるう年
+    expect(next('monthly:end-1', '2026-12-30')).toBe('2027-01-30')
+    // 27日前は、どの月にもある日（28日の月なら1日）
+    expect(next('monthly:end-27', '2027-01-31')).toBe('2027-02-01')
   })
 
   it('毎年。2月29日はうるう年でない年は28日にする', () => {

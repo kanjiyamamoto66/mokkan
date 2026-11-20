@@ -3,6 +3,7 @@ import {
   backlinksOf,
   bodyRefs,
   lintFiles,
+  LINT_REQUEST,
   lintToMarkdown,
   replaceLinkDestination,
   type LintEntry
@@ -316,7 +317,7 @@ describe('lintToMarkdown', () => {
       ],
       TODAY
     )
-    expect(md).toContain('# ノートの点検（2026-11-10）')
+    expect(md).toContain(`# ノートの点検（2026-11-10）\n\n${LINT_REQUEST}\n\n## `)
     expect(md).toContain(
       '## 切れたリンク\n\nリンク先の ID のチケット・ノートがありません\n\n- [定例\\[1\\]](<notes/A社/20261101-0900-n001_定 例.md>)（12行目）：20261101-0900-gone が見つかりません\n'
     )
