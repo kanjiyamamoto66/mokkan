@@ -150,11 +150,88 @@ code {
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
+  /* 帯の幅でボタンの文字を消す（下のコンテナークエリー）。コンテナーは中の絶対配置（検索の結果・
+     テンプレートの選択）の重なりの基準になるので、帯ごと下の画面より上に出す。窓（.dialog-backdrop の 20）よりは下 */
+  container: header / inline-size;
+  position: relative;
+  z-index: 19;
 }
 
 .brand {
   margin: 0 8px 0 0;
   font-size: 18px;
+}
+
+/*
+ * 上の帯のボタン：アイコンと文字。帯が狭いときは、決めた順に文字を消してアイコンだけにする（ボタンは隠さない）
+ * 名前は title と aria-label に残す。順は、よく使うものほど文字を長く残す
+ *   1. 文字だけの飾り（「＋ 新規」の Ctrl+N とテンプレートの名前）を消し、検索欄を細くする
+ *   2. フォルダを開く・フォルダを変える（.shrink-2）
+ *   3. 設定・＋ 新規（.shrink-3）
+ *   4. 表示の切り替え（.shrink-4）
+ * 窓の幅ではなく、帯の幅で決める（コンテナークエリー）
+ */
+.header button {
+  white-space: nowrap;
+}
+
+.header button.with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.header .icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+/* テンプレートの名前が長くても、帯を押し広げない */
+.header .new-choice {
+  display: inline-block;
+  max-width: 10em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+/* フォルダの場所は、狭いと数文字しか出ず欠けて見えるので、ほかの飾りより先に消す（場所は「フォルダを開く」の title に出る）。
+   既定の窓（1280px）では消える */
+@container header (max-width: 1320px) {
+  .header .folder {
+    display: none;
+  }
+}
+
+@container header (max-width: 1180px) {
+  .header kbd,
+  .header .new-choice {
+    display: none;
+  }
+
+  .search-box {
+    flex-basis: 200px;
+    min-width: 120px;
+  }
+}
+
+@container header (max-width: 1060px) {
+  .header .shrink-2 .btn-label {
+    display: none;
+  }
+}
+
+@container header (max-width: 920px) {
+  .header .shrink-3 .btn-label {
+    display: none;
+  }
+}
+
+@container header (max-width: 820px) {
+  .header .shrink-4 .btn-label {
+    display: none;
+  }
 }
 
 /* ---- 画面の上の検索欄 ---- */
@@ -264,6 +341,15 @@ code {
   white-space: nowrap;
   color: var(--muted);
   font-size: 12px;
+  /* 入りきらないときは頭を省いて「…\（フォルダ名）\tasks」のように後ろを出す（場所は後ろのほうが見分けやすい）。
+     右から左の向きで頭のほうをはみ出させ、中の文字は左から右の並びのまま閉じ込める */
+  direction: rtl;
+  text-align: left;
+}
+
+.folder-path {
+  direction: ltr;
+  unicode-bidi: isolate;
 }
 
 .error {
@@ -349,6 +435,32 @@ button.has-dot::after {
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
+}
+
+/* タグをキー（顧客/A社 の「顧客」）ごとにまとめた塊 */
+.filters .tag-key-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px 1px 2px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.filters .tag-key-label {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 0 4px;
+}
+
+.filters .chip.tag-key {
+  font-weight: 600;
+}
+
+/* 行の右端に置く操作（ノートの「点検」など） */
+.filters .filter-actions {
+  margin-left: auto;
 }
 
 .filters .label {
@@ -1237,6 +1349,41 @@ button.has-dot::after {
   flex: 0 0 440px;
 }
 
+/* ---- 一覧と編集画面の境目（ドラッグで編集画面の幅を変える） ---- */
+
+.pane-splitter {
+  flex: 0 0 6px;
+  margin-left: -3px;
+  margin-right: -3px;
+  position: relative;
+  z-index: 2;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.pane-splitter:hover,
+.pane-splitter:focus-visible {
+  background: var(--selected-ring);
+  outline: none;
+}
+
+/* ドラッグ中は、文字を選んだりカーソルが変わったりしないようにする */
+body.pane-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* 幅を変えたときは、一覧（カレンダー・ガント）を縮め、編集画面の幅を保つ。一覧は 260px、編集画面は 360px が下限 */
+.panes.with-editor.custom-width .main {
+  flex: 1 1 0;
+  min-width: 260px;
+}
+
+.panes.with-editor.custom-width .editor {
+  flex: 0 1 var(--editor-width);
+  min-width: 360px;
+}
+
 /* ---- カレンダー ---- */
 
 .calendar {
@@ -1305,7 +1452,7 @@ button.has-dot::after {
   vertical-align: 1px;
 }
 
-/* ---- 凡例（カレンダーとガントの「?」） ---- */
+/* ---- 凡例（カレンダーとガントの「凡例」） ---- */
 
 .legend {
   position: relative;
@@ -1325,10 +1472,9 @@ button.has-dot::after {
 }
 
 .legend-toggle {
-  width: 26px;
   height: 26px;
-  padding: 0;
-  border-radius: 50%;
+  padding: 0 10px;
+  border-radius: 13px;
   font-size: 13px;
   color: var(--muted);
 }
@@ -1652,6 +1798,115 @@ button.has-dot::after {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+}
+
+/* ---- ヘルプ ---- */
+
+.dialog.help-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+}
+
+.help-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 8px 0 4px;
+}
+
+.help-body {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.help-body h3 {
+  margin: 14px 0 6px;
+  font-size: 13px;
+}
+
+.help-actions {
+  margin: 0;
+  font-size: 13px;
+}
+
+.help-actions > div {
+  display: grid;
+  grid-template-columns: 11em 1fr;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.help-actions dt {
+  font-weight: 600;
+}
+
+.help-actions dd {
+  margin: 0;
+  color: var(--muted);
+}
+
+.help-prompts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 13px;
+}
+
+.help-prompts li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.help-prompt-text {
+  flex: 1;
+}
+
+.help-prompts button {
+  flex: none;
+}
+
+.help-text {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.help-folder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.help-folder code {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.help-launch {
+  margin: 8px 0;
+  padding-left: 20px;
+  font-size: 13px;
+}
+
+.help-dialog .dialog-actions {
+  align-items: center;
+}
+
+.help-readme {
+  margin-right: auto;
+  font-size: 12px;
 }
 
 /* ---- AI でタスクを起こす ---- */
@@ -2331,4 +2586,49 @@ button.danger {
 
 .backlinks button.link {
   padding: 0;
+}
+
+/* ---- 入口のノートの「このプロジェクトのチケット（未完了）」 ---- */
+
+.project-tickets {
+  padding: 4px 16px 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.project-tickets .label,
+.project-tickets .none,
+.project-tickets .due {
+  color: var(--muted);
+}
+
+.project-tickets .due.overdue {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.project-tickets .label {
+  margin-right: 6px;
+}
+
+.project-tickets ul {
+  list-style: none;
+  margin: 4px 0 2px;
+  padding: 0;
+}
+
+.project-tickets li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 1px 0;
+}
+
+.project-tickets button.link {
+  padding: 0;
+  text-align: left;
+}
+
+.project-tickets .show-all {
+  margin-top: 2px;
 }

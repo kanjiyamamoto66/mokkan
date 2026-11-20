@@ -432,6 +432,10 @@ export function replaceLinkDestination(text: string, href: string, to: string): 
 
 // ---- md でコピー ----
 
+/** 点検の結果の md の頭に入れる、AI に頼む文 */
+export const LINT_REQUEST =
+  'この点検の結果をもとに、直す案を出してください。直すのは、人が確かめてからにしてください。'
+
 /**
  * 点検の結果を md の箇条書きにする（クリップボードに入れて AI に渡すため。ファイルには書かない）
  * リンクは tasks/ からの相対パスにする（tasks/ で動く AI がそのまま開けるように）
@@ -439,6 +443,8 @@ export function replaceLinkDestination(text: string, href: string, to: string): 
 export function lintToMarkdown(items: readonly LintItem[], today: string): string {
   const lines = [`# ノートの点検（${today}）`, '']
   if (items.length === 0) lines.push('見つかったものはありません。', '')
+  // AI に貼るだけで頼めるように、頼む文を頭に入れる（クリップボードは1つなので、頼む文と結果を別々にコピーさせない）
+  else lines.push(LINT_REQUEST, '')
   for (const kind of LINT_KINDS) {
     const group = items.filter((i) => i.kind === kind)
     if (group.length === 0) continue

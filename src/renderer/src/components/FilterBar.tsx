@@ -9,6 +9,7 @@ import {
   type Status
 } from '../../../shared/ticket'
 import type { TagColors } from '../../../shared/tagColor'
+import { groupTags, tagChipLabel } from '../../../shared/tagKey'
 import { PRIORITY_LABELS, SORT_DIRECTION_LABELS, SORT_LABELS, STATUS_LABELS } from '../labels'
 import { tagStyle } from '../tagStyle'
 
@@ -30,6 +31,8 @@ interface Props {
   tagsOnly?: boolean
   /** タグの色（TAGS.md） */
   tagColors: TagColors
+  /** 行の右端に置く操作（ノートの一覧の「点検」など） */
+  actions?: React.ReactNode
 }
 
 const FILTER_STATUSES: Status[] = ['todo', 'doing', 'waiting']
@@ -72,24 +75,73 @@ function FilterBar({
   sort,
   onSortChange,
   tagsOnly = false,
-  tagColors
+  tagColors,
+  actions
 }: Props): React.JSX.Element {
+  const trailing = actions && <div className="group filter-actions">{actions}</div>
+  const tagChip = (tag: string, label: string): React.JSX.Element => (
+    <button
+      key={tag}
+      className={filter.tags.includes(tag) ? 'chip tag-colored on' : 'chip tag-colored'}
+      style={tagStyle(tag, tagColors)}
+      title={tag}
+      onClick={() => onChange((f) => ({ ...f, tags: toggle(f.tags, tag) }))}
+    >
+      {label}
+    </button>
+  )
+  // キー（顧客/A社 の「顧客」）ごとにまとめて出す。キーのないタグは最後（キーのあるタグがあるときだけ「その他」と書く）
+  const groups = groupTags(tags)
+  const hasKeys = groups.some((g) => g.key !== null)
   const tagGroup = tags.length > 0 && (
-    <div className="group">
+    <div
+      className="group tag-filter"
+      title="同じキーのタグはどれかに合うもの、違うキーのタグはすべてに合うものを出します"
+    >
       <span className="label">タグ</span>
-      {tags.map((tag) => (
-        <button
-          key={tag}
-          className={filter.tags.includes(tag) ? 'chip tag-colored on' : 'chip tag-colored'}
-          style={tagStyle(tag, tagColors)}
-          onClick={() => onChange((f) => ({ ...f, tags: toggle(f.tags, tag) }))}
-        >
-          {tag}
-        </button>
-      ))}
+      {groups.map((g) => {
+        if (g.key === null) {
+          const chips = g.tags.map((tag) => tagChip(tag, tag))
+          return hasKeys ? (
+            <span key="(none)" className="tag-key-group">
+              <span className="tag-key-label">その他</span>
+              {chips}
+            </span>
+          ) : (
+            chips
+          )
+        }
+        const all = g.tags.every((t) => filter.tags.includes(t))
+        return (
+          <span key={`key:${g.key}`} className="tag-key-group">
+            <button
+              className={all ? 'chip tag-key on' : 'chip tag-key'}
+              title={`「${g.key}」のタグすべてで絞り込む（もう一度押すと外す）`}
+              onClick={() =>
+                onChange((f) => ({
+                  ...f,
+                  tags: all
+                    ? f.tags.filter((t) => !g.tags.includes(t))
+                    : [...f.tags, ...g.tags.filter((t) => !f.tags.includes(t))]
+                }))
+              }
+            >
+              {g.key}
+            </button>
+            {g.tags.map((tag) => tagChip(tag, tagChipLabel(tag, tags)))}
+          </span>
+        )
+      })}
     </div>
   )
-  if (tagsOnly) return <div className="filters">{tagGroup}</div>
+  if (tagsOnly) {
+    return (
+      <div className="filters">
+        {tagGroup}
+        {trailing}
+      </div>
+    )
+  }
 
   return (
     <div className="filters">
@@ -189,6 +241,7 @@ function FilterBar({
         />
         アーカイブも表示
       </label>
+      {trailing}
     </div>
   )
 }

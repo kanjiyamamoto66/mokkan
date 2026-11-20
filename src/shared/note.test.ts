@@ -12,6 +12,9 @@ import {
   isSafeNoteFolder,
   listNotes,
   noteKey,
+  noteTypeChange,
+  indexProjectTag,
+  projectOpenTickets,
   parseHomeworkItem,
   parseNote,
   plainListItem,
@@ -407,5 +410,76 @@ describe('宿題の項目の読み取り', () => {
     expect(hasBackLink('A → 20261019-1512-x7q2')).toBe(true)
     expect(hasBackLink('A → [20261019-1512-x7q2](../tickets/x.md)')).toBe(true)
     expect(hasBackLink('A（高橋）')).toBe(false)
+  })
+})
+
+describe('noteTypeChange', () => {
+  it('知識にしたとき、見直した日がなければ今日を入れる', () => {
+    expect(noteTypeChange('knowledge', null, '2026-11-20')).toEqual({
+      type: 'knowledge',
+      reviewed: '2026-11-20'
+    })
+    expect(noteTypeChange('knowledge', '2026-01-02', '2026-11-20')).toEqual({ type: 'knowledge' })
+  })
+
+  it('知識から別の種類にしたとき、見直した日を空にする', () => {
+    expect(noteTypeChange('record', '2026-01-02', '2026-11-20')).toEqual({
+      type: 'record',
+      reviewed: null
+    })
+    expect(noteTypeChange('index', '2026-01-02', '2026-11-20')).toEqual({
+      type: 'index',
+      reviewed: null
+    })
+  })
+
+  it('見直した日がなければ種類だけを変える', () => {
+    expect(noteTypeChange('record', null, '2026-11-20')).toEqual({ type: 'record' })
+  })
+
+  it('空にした見直した日は、行を残したまま値だけを消す', () => {
+    const text =
+      '---\nid: 20261019-1400-m3k8\ntype: knowledge\ndate:\nreviewed: 2026-01-02\ntags: []\n---\n\n# A\n'
+    const updated = setFields(
+      text,
+      noteTypeChange('record', '2026-01-02', '2026-11-20'),
+      NOTE_FIELD_ORDER
+    )
+    expect(updated).toBe(
+      '---\nid: 20261019-1400-m3k8\ntype: record\ndate:\nreviewed:\ntags: []\n---\n\n# A\n'
+    )
+  })
+})
+
+describe('projectOpenTickets', () => {
+  const t = (id: string, fm: string, archived = false): Ticket => ({
+    ...parseTicket(`${id}.md`, `---\nid: ${id}\n${fm}\n---\n`),
+    archived
+  })
+  const tickets = [
+    t('20261101-0900-aaaa', 'status: todo\ndue: 2026-12-01\ntags: [A社]'),
+    t('20261101-0900-bbbb', 'status: doing\ndue: 2026-11-25\ntags: [A社, 急ぎ]'),
+    t('20261101-0900-cccc', 'status: todo\ntags: [A社]'),
+    t('20261101-0900-dddd', 'status: done\ndue: 2026-11-20\ntags: [A社]'),
+    t('20261101-0900-eeee', 'status: todo\ndue: 2026-11-01\ntags: [A社]', true),
+    t('20261101-0900-ffff', 'status: todo\ndue: 2026-11-01\ntags: [B社]')
+  ]
+
+  it('入口のノートには、プロジェクトのタグの未完了のチケットを期限の近い順に返す', () => {
+    const index = { type: 'index' as const, folder: 'A社' }
+    expect(projectOpenTickets(index, tickets).map((x) => x.id)).toEqual([
+      '20261101-0900-bbbb',
+      '20261101-0900-aaaa',
+      '20261101-0900-cccc'
+    ])
+  })
+
+  it('プロジェクトのフォルダの直下の入口のノートだけが対象', () => {
+    expect(indexProjectTag({ type: 'index', folder: 'A社' })).toBe('A社')
+    expect(indexProjectTag({ type: 'index', folder: 'A社/定例' })).toBeNull()
+    expect(indexProjectTag({ type: 'index', folder: '共通' })).toBeNull()
+    expect(indexProjectTag({ type: 'index', folder: '' })).toBeNull()
+    expect(indexProjectTag({ type: 'knowledge', folder: 'A社' })).toBeNull()
+    expect(projectOpenTickets({ type: 'record', folder: 'A社' }, tickets)).toEqual([])
   })
 })

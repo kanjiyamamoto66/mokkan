@@ -220,6 +220,7 @@ function PropertyForm({
             onChange={(tags) => onChange({ tags })}
             colors={tagColors}
             onColorChange={saveTagColor}
+            keyValue
           />
         </div>
         <label className="wide">

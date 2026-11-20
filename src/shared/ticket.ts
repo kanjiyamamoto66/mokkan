@@ -2,6 +2,7 @@
 // 裏方（main）と画面（renderer）の両方から使う
 
 import { parse } from 'yaml'
+import { matchesTags } from './tagKey'
 
 export type Status = 'todo' | 'doing' | 'waiting' | 'done'
 export const STATUSES: readonly Status[] = ['todo', 'doing', 'waiting', 'done']
@@ -297,6 +298,7 @@ export function fillTemplate(
 
 export interface ListFilter {
   statuses: Status[]
+  /** タグ。同じキーのタグどうしは「または」、違うキーどうしは「かつ」（matchesTags） */
   tags: string[]
   priorities: Priority[]
   /** 担当者。UNASSIGNED は「未割り当て」（担当者が空） */
@@ -417,7 +419,7 @@ export function matchesFilter(t: Ticket, filter: ListFilter): boolean {
   if (t.archived && !filter.showArchived) return false
   if (t.status === 'done' && !filter.showDone && !(t.archived && filter.showArchived)) return false
   if (filter.statuses.length > 0 && !(t.status && filter.statuses.includes(t.status))) return false
-  if (filter.tags.length > 0 && !t.tags.some((tag) => filter.tags.includes(tag))) return false
+  if (!matchesTags(t.tags, filter.tags)) return false
   if (filter.priorities.length > 0 && !filter.priorities.includes(effectivePriority(t)))
     return false
   // 担当者は「選んだ人のどれかが担当に入っている」。未割り当ては担当者が空のもの

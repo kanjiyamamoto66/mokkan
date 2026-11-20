@@ -8,6 +8,7 @@ import {
   type Status,
   type Ticket
 } from './ticket'
+import { valuesOfKey } from './tagKey'
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 
@@ -170,7 +171,18 @@ export function calendarItems(
  * - nodate：日付がない。行だけ表示して棒は描かない
  */
 export type GanttKind = 'task' | 'milestone' | 'summary' | 'group' | 'nodate'
-export type GanttGrouping = 'parent' | 'tag'
+/** 親子ごと・タグごと・キーの値ごと（`key:顧客` なら `顧客/…` のタグの値ごと） */
+export type GanttGrouping = 'parent' | 'tag' | `key:${string}`
+
+/** キーの値ごとにまとめる指定を作る */
+export function keyGrouping(key: string): GanttGrouping {
+  return `key:${key}`
+}
+
+/** キーの値ごとにまとめる指定なら、そのキー。それ以外は null */
+export function groupingKey(grouping: GanttGrouping): string | null {
+  return grouping.startsWith('key:') ? grouping.slice(4) : null
+}
 
 export interface GanttRow {
   /** 行の識別子（タグでまとめると同じチケットが複数の行に出るので、ファイル名とは別に持つ） */
@@ -347,24 +359,40 @@ function ganttByParent(tickets: Ticket[], filter: ListFilter, today: string | nu
 
 const NO_TAG = 'タグなし'
 
-function ganttByTag(tickets: Ticket[], filter: ListFilter, today: string | null): GanttRow[] {
+/**
+ * タグごと（tagKey が null）か、キーの値ごと（`顧客` なら `顧客/A社` の `A社` ごと）にまとめる
+ * キーの値ごとのときは、そのキーのタグがないチケットを「顧客なし」にまとめる
+ */
+function ganttByTag(
+  tickets: Ticket[],
+  filter: ListFilter,
+  today: string | null,
+  tagKey: string | null
+): GanttRow[] {
   const matched = tickets.filter((t) => matchesFilter(t, filter)).sort(compareForGantt)
-  const groups = new Map<string, Ticket[]>()
+  const none = tagKey === null ? NO_TAG : `${tagKey}なし`
+  /** まとまりの名前（見出し）→ そのまとまりのタグ（色に使う。「なし」は null）とチケット */
+  const groups = new Map<string, { tag: string | null; members: Ticket[] }>()
+  const add = (name: string, tag: string | null, t: Ticket): void => {
+    const group = groups.get(name) ?? { tag, members: [] }
+    group.members.push(t)
+    groups.set(name, group)
+  }
   for (const t of matched) {
-    for (const tag of t.tags.length > 0 ? t.tags : [NO_TAG]) {
-      groups.set(tag, [...(groups.get(tag) ?? []), t])
-    }
+    const names = tagKey === null ? t.tags : valuesOfKey(t.tags, tagKey)
+    if (names.length === 0) add(none, null, t)
+    for (const name of names) add(name, tagKey === null ? name : `${tagKey}/${name}`, t)
   }
   const names = [...groups.keys()].sort((a, b) => {
-    if (a === NO_TAG) return 1
-    if (b === NO_TAG) return -1
+    if (a === none) return 1
+    if (b === none) return -1
     return a.localeCompare(b, 'ja')
   })
 
   const rows: GanttRow[] = []
   for (const name of names) {
-    const members = groups.get(name)!
-    const key = `tag:${name}`
+    const { tag, members } = groups.get(name)!
+    const key = `tag:${tag ?? name}`
     const span = members.reduce<{ start: string; end: string } | null>(
       (acc, t) => union(acc, ticketSpan(t)),
       null
@@ -383,7 +411,7 @@ function ganttByTag(tickets: Ticket[], filter: ListFilter, today: string | null)
       faded: false,
       warning: null,
       overdue: false,
-      tag: name === NO_TAG ? null : name,
+      tag,
       path: [],
       open: true,
       hasChildren: true
@@ -424,7 +452,9 @@ export function ganttRows(
   grouping: GanttGrouping,
   today: string | null = null
 ): GanttRow[] {
-  return grouping === 'tag'
-    ? ganttByTag(tickets, filter, today)
+  if (grouping === 'tag') return ganttByTag(tickets, filter, today, null)
+  const key = groupingKey(grouping)
+  return key !== null
+    ? ganttByTag(tickets, filter, today, key)
     : ganttByParent(tickets, filter, today)
 }

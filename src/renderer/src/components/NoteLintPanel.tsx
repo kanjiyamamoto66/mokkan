@@ -84,7 +84,7 @@ function NoteLintPanel({ stamp, onOpen, onSelectFolder, onClose }: Props): React
           md でコピー
         </button>
         <button className="ghost" onClick={onClose}>
-          閉じる
+          一覧に戻る
         </button>
       </div>
       <p className="lint-note">

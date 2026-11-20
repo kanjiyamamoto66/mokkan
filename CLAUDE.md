@@ -39,6 +39,8 @@
 | `src/shared/note.ts` | ノート（`notes/` とその下のフォルダ）の読み取り（種類・見直した日・フォルダ）・キーとフォルダ（`splitNoteKey`・`noteKey`・`isSafeNoteFolder`・`folderNameError`・`projectTag`）・一覧の絞り込みと並び順・ノートから起こしたチケット・「宿題」への書き戻し（`attachHomework`・`appendHomework`・`hasHomeworkHeading`）と項目の読み取り（`parseHomeworkItem`） |
 | `src/shared/archive.ts` | アーカイブ（`archive/` に移す）・戻す・削除の対象（子孫を含む）を決める |
 | `src/shared/tagColor.ts` | タグの色（`tasks/TAGS.md` の読み取りと、変えたタグの行だけの書き換え・名前から決める色相） |
+| `src/shared/help.ts` | ヘルプ（「？」）の中身。「はじめに」（AI に指定するフォルダ・起動のしかた `START_LAUNCH`・最初に頼む文 `START_PROMPTS`。初めての起動で設定の後に開く）と、画面ごとの操作の説明と AI に頼む文の例（`helpPromptText`。コピーは id で裏方が引く `helpHandlers`。フォルダの場所は `copyTasksDir`） |
+| `src/shared/tagKey.ts` | キーと値のタグ（`顧客/A社`）の分け方（`splitTag`）・キーごとのまとめ（`groupTags`）・絞り込みの判定（`matchesTags`：同じキーは「または」、違うキーは「かつ」） |
 | `src/shared/repeat.ts` | 繰り返し（`repeat`）の書式の読み取り、次回の日付の計算、次回分のチケットの中身の組み立て |
 | `src/shared/search.ts` | 全文検索の当たりの判定（語の分け方・文字起こしを除く・当たった箇所の文）。ファイルを読むのは `TaskStore.search`（探すたびに読む） |
 | `src/shared/links.ts` | 他のチケット・ノートへの md のリンク（相対パス・リンク先の ID・リンク先が指すファイル `resolveLinkPath`）と、文の中の ID（`findIds`）・リンクの候補の絞り込み・探すための文字の揃え方（`normalizeForSearch`） |
@@ -48,11 +50,11 @@
 | `src/main/ipc.ts` | IPC の入力の確かめ（`requireString`・`requireStringArray`・`normalizeTitle`・`normalizeTag`・`requireHue`・`normalizeFromNoteOptions`）、ハンドラー、設定への案内の判定（`decideOnboarding`・`onboardingHandlers`）、外部のブラウザで開いてよい URL か（http/https だけ）。electron に依存しないので Node 上でテストできる |
 | `src/main/aiTasks.ts` | ノートを AI（パソコンの Claude Code の `claude -p` か、Cursor CLI の `agent -p`。`runAi`）に送ってタスクの候補を出してもらう。送る文の組み立て・答えの読み取り・呼び出し（`runClaude`・`runCursor`。文は標準入力で渡し、道具は使わせない）・Cursor CLI の探し方（`cursorCommands`）・失敗の理由（`failureMessage`）。electron に依存しないので Node 上でテストできる |
 | `src/shared/aiService.ts` | 使える AI（`AI_SERVICES`）と、画面に出す名前・見つからないときの案内 |
-| `src/main/settings.ts` | `tasks/` の場所や一覧の並び順・自分の名前・最後に案内を済ませた版（`lastVersion`）・使う AI（`aiService`）などの個人設定（userData に保存。開発中は `%APPDATA%\mokkan-dev`） |
+| `src/main/settings.ts` | `tasks/` の場所や一覧の並び順・自分の名前・最後に案内を済ませた版（`lastVersion`）・使う AI（`aiService`）・画面ごとの編集画面の幅（`paneWidths`。値の確かめは `src/shared/paneWidth.ts`）などの個人設定（userData に保存。開発中は `%APPDATA%\mokkan-dev`） |
 | `src/main/index.ts` | ウィンドウと IPC の登録。画面は sandbox で動かし、ページの移動（`will-navigate`。今のページの読み込み直しは通す）と権限の要求（カメラ・通知など）は断る |
 | `src/preload/index.ts` | 画面に渡す API（`window.api`） |
-| `src/renderer/src/App.tsx` | 画面の全体（表示の切り替え・選択中のチケットと「← 戻る」の履歴・新規作成・並び順と自分の名前の読み込み・アーカイブで移したときの切り替え・検索の結果から開く・設定への案内と名前の付け足しの案内の帯） |
-| `src/renderer/src/components/` | 一覧・絞り込み・警告・編集画面・プロパティフォーム・カレンダー・ガント・凡例（`Legend`）・タグと担当者の入力（`TagInput`）・タグの色の選択（`TagColorPicker`）・繰り返しの指定（`RepeatInput`）・本文のツールバー（`EditorToolbar`）・`[[` の候補（`LinkSuggestList`）・検索欄（`SearchBox`）・設定とルールのファイル（`SettingsDialog`）・まとめてアーカイブ（`ArchiveDialog`）・ノートの一覧（`NoteList`）・ノートのフォルダの木と種類の絞り込み（`NoteFolderTree`）・新規作成のボタンとテンプレートの選択（`NewButton`）・ノートのプロパティと「＋ ここからチケット」（`NoteProperties`）・AI でタスクを起こす窓（`AiTasksDialog`）・ノートの点検の結果（`NoteLintPanel`）・編集画面の「このノートへのリンク」（`Backlinks`）。編集画面（`TicketEditor`）はチケットとノートの両方を開く |
+| `src/renderer/src/App.tsx` | 画面の全体（上の帯のボタン〔狭いときにアイコンだけにする順と幅は `main.css` の `.header` のコンテナークエリー〕・表示の切り替え・選択中のチケットと「← 戻る」の履歴・新規作成・並び順と自分の名前の読み込み・アーカイブで移したときの切り替え・検索の結果から開く・設定への案内と名前の付け足しの案内の帯） |
+| `src/renderer/src/components/` | 一覧・絞り込み・警告・編集画面・プロパティフォーム・カレンダー・ガント・凡例（`Legend`）・タグと担当者の入力（`TagInput`）・タグの色の選択（`TagColorPicker`）・繰り返しの指定（`RepeatInput`）・本文のツールバー（`EditorToolbar`）・`[[` の候補（`LinkSuggestList`）・検索欄（`SearchBox`）・設定とルールのファイル（`SettingsDialog`）・まとめてアーカイブ（`ArchiveDialog`）・ノートの一覧（`NoteList`）・ノートのフォルダの木と種類の絞り込み（`NoteFolderTree`）・新規作成のボタンとテンプレートの選択（`NewButton`）・ノートのプロパティと「＋ ここからチケット」（`NoteProperties`）・AI でタスクを起こす窓（`AiTasksDialog`）・ノートの点検の結果（`NoteLintPanel`）・編集画面の「このノートへのリンク」（`Backlinks`）・入口のノートの「このプロジェクトのチケット」（`ProjectTickets`。対象は `projectOpenTickets`）・一覧と編集画面の境目（`PaneSplitter`）・ヘルプ（`HelpDialog`）。編集画面（`TicketEditor`）はチケットとノートの両方を開く |
 | `src/renderer/src/tagStyle.ts` | タグの色を画面に付ける（色相を `--tag-h` で渡す）・タグの色を保存する |
 | `src/renderer/src/editor/markdown.ts` | Milkdown の組み立てと書き出し設定（`STRINGIFY_OPTIONS`）。往復テストは同じ場所の `markdown.test.ts`（jsdom） |
 | `src/renderer/src/editor/idLinks.ts` | 本文の中の ID と、他のチケット・ノートへの md のリンク（リンク先の ID で探す）に印とタイトルを付け、Ctrl+クリックで開く ProseMirror のプラグイン（画面の飾りだけで、本文は変えない）。テストは `idLinks.test.ts`（jsdom） |
@@ -180,6 +182,7 @@
 | 本文のブロック分け | unified / remark-parse / remark-gfm（Milkdown と同じバージョン） |
 | カレンダー | FullCalendar 7（MITの標準機能のみ） |
 | ガントチャート | SVAR React Gantt（MIT版。有料のPRO機能は使わない） |
+| アイコン | Lucide（`lucide-react`、ISC）。上の帯のボタンに使う。画面側だけなので devDependencies |
 | ファイル監視 | chokidar 6（Node 22.22 以上が必要） |
 | AI でタスクを起こす | Claude Code（`claude -p`）か Cursor CLI（`agent -p`）。設定で選ぶ。パソコンに入っているものを呼ぶ。同梱しない |
 | Node.js | 24 LTS（`.node-version` に記載）。Electron が同梱する Node のメジャー版に合わせる（`@types/node` も同じ） |

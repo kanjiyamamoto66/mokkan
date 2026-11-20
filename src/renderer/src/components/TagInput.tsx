@@ -4,6 +4,7 @@
 
 import { useId, useMemo, useRef, useState } from 'react'
 import { tagHue, type TagColors } from '../../../shared/tagColor'
+import { TAG_KEY_SEPARATOR, normalizeTagInput } from '../../../shared/tagKey'
 import { tagStyle } from '../tagStyle'
 import TagColorPicker from './TagColorPicker'
 
@@ -20,6 +21,11 @@ interface Props {
   label?: string
   /** 何も入っていないときの例 */
   placeholder?: string
+  /**
+   * キーと値のタグ（顧客/A社）として扱うか（タグの欄だけ。担当者の欄は扱わない）
+   * 全角の「／」を「/」にそろえ、「顧客/」まで打ったらそのキーのタグだけを候補に出す
+   */
+  keyValue?: boolean
 }
 
 /**
@@ -37,7 +43,8 @@ function TagInput({
   colors,
   onColorChange,
   label = 'タグ',
-  placeholder = '仕事, A社'
+  placeholder = '仕事, 顧客/A社',
+  keyValue = false
 }: Props): React.JSX.Element {
   const [draft, setDraft] = useState('')
   /** 色を選んでいるタグ */
@@ -51,16 +58,23 @@ function TagInput({
   const listId = useId()
 
   const candidates = useMemo(() => {
-    const query = draft.trim().toLowerCase()
+    const raw = draft.trim().toLowerCase()
+    const query = keyValue ? normalizeTagInput(raw) : raw
+    // 「顧客/」のようにキーまで打ったら、そのキーのタグだけを出す（前から合うもの）
+    const byKey = keyValue && query.includes(TAG_KEY_SEPARATOR)
     return suggestions
-      .filter((s) => !tags.includes(s) && (query === '' || s.toLowerCase().includes(query)))
+      .filter((s) => {
+        if (tags.includes(s)) return false
+        const text = s.toLowerCase()
+        return query === '' || (byKey ? text.startsWith(query) : text.includes(query))
+      })
       .slice(0, MAX_SUGGESTIONS)
-  }, [draft, suggestions, tags])
+  }, [draft, suggestions, tags, keyValue])
 
   /** タグを足す。空・重複は除く。足した後に残す入力中の文字を rest で渡す */
   const add = (values: string[], rest = ''): void => {
     const next = [...tags]
-    for (const value of values.map((v) => v.trim())) {
+    for (const value of values.map((v) => (keyValue ? normalizeTagInput(v) : v).trim())) {
       if (value !== '' && !next.includes(value)) next.push(value)
     }
     setDraft(rest)
