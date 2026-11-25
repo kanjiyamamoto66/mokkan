@@ -1,6 +1,6 @@
 {
   "name": "mokkan",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "description": "標準のmdファイル群をデータベースにした、個人用のタスク管理デスクトップアプリ",
   "main": "./out/main/index.js",
