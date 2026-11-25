@@ -2,7 +2,7 @@
 // PC ごとに画面の広さが違うので、tasks/ には置かない
 
 /** 境目を動かせる画面 */
-export const PANE_VIEWS = ['list', 'calendar', 'gantt', 'notes'] as const
+export const PANE_VIEWS = ['list', 'calendar', 'gantt', 'timetable', 'notes'] as const
 export type PaneView = (typeof PANE_VIEWS)[number]
 
 /** 画面ごとの編集画面の幅（px）。動かしていない画面は入らない（初めの幅を使う） */

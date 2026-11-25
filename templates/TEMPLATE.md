@@ -4,6 +4,7 @@ status: todo
 priority: 2
 start:
 due:
+estimate:
 repeat:
 tags: []
 parent:

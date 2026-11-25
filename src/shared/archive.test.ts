@@ -26,6 +26,7 @@ function ticket(partial: Partial<Ticket> & { id: string }): Ticket {
     author: null,
     created: null,
     done: '2026-09-01',
+    estimate: null,
     modified: null,
     parseError: null,
     ...partial

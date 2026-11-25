@@ -1,6 +1,7 @@
 // 裏方（main）と画面（renderer）の間でやりとりする型
 
 import type { AiService } from './aiService'
+import type { DayEdit, WorkHours } from './day'
 import type { Backlink, LintItem } from './lint'
 import type { Note } from './note'
 import type { PaneView, PaneWidths } from './paneWidth'
@@ -31,6 +32,11 @@ export interface AppState {
   tagFile: { error: string | null; conflicts: string[] }
   /** 起動時に、ID だけのファイル名に見出しを付け足した件数 */
   renamedOnStart: number
+  /**
+   * tasks/days/ の時間割のファイル（日付か 'routine'）と更新日時（ミリ秒）。中身は readDay で読む
+   * （更新日時が変わったら、開いている時間割を読み直す）
+   */
+  days: Record<string, number>
 }
 
 export interface CreateResult {
@@ -109,32 +115,11 @@ export interface CreateNoteRequest {
   template?: string | null
   /** 作る先の notes/ の中のフォルダ。空文字なら notes/ の直下 */
   folder?: string
+  /** 見出し（タイトル）。あれば本文の `#` に入れ、ファイル名にも付ける */
+  title?: string | null
+  /** ノートの日付（YYYY-MM-DD）。なければ今日（時間割の MTG から議事メモを作るときは、その日） */
+  date?: string | null
 }
-
-/** AI が出したタスクの候補 */
-export interface AiCandidate {
-  title: string
-  assignees: string[]
-  /** 期限（YYYY-MM-DD）。はっきりしなければ null */
-  due: string | null
-  /** 根拠になった発言 */
-  evidence: string
-  /** 「宿題」の項目から起こしたときの、その項目の文 */
-  homework: string | null
-  /** 迷っているときの理由 */
-  doubt: string | null
-}
-
-/**
- * AI に候補を出してもらった結果
- * - ok：候補（truncated は長すぎて途中までを送ったか）
- * - not-installed：Claude Code（claude コマンド）が見つからない
- * - error：AI がエラーを返した・止めたなど
- */
-export type AiSuggestResult =
-  | { status: 'ok'; candidates: AiCandidate[]; truncated: boolean }
-  | { status: 'not-installed' }
-  | { status: 'error'; message: string }
 
 /**
  * 設定ボタンへの案内
@@ -165,7 +150,7 @@ export interface MokkanApi {
   /** 前回選んだテンプレート（個人設定）。既定なら null */
   getTemplateChoice(kind: TemplateKind): Promise<string | null>
   setTemplateChoice(kind: TemplateKind, name: string | null): Promise<void>
-  /** 「AI でタスクを起こす」で使う AI（個人設定。既定は Claude Code） */
+  /** 使っている AI（個人設定。既定は Claude Code）。「はじめに」とヘルプの起動のしかたの書き分けだけに使う */
   getAiService(): Promise<AiService>
   setAiService(service: AiService): Promise<void>
   /**
@@ -196,6 +181,18 @@ export interface MokkanApi {
   updateRuleFiles(names: string[]): Promise<RuleFileStatus[]>
   /** 完了した繰り返しのチケットの次回分を作る（完了にした操作のあとで呼ぶ） */
   createNextRepeat(fileName: string): Promise<RepeatResult>
+  /** チケットを完了にし（status と done の行だけを変える）、繰り返しがあれば次回分を作る（時間割から） */
+  completeTicket(fileName: string): Promise<RepeatResult>
+  /** その日の時間割（days/YYYY-MM-DD.md）といつもの予定（days/routine.md）の中身。ないものは null */
+  readDay(date: string): Promise<{ text: string | null; routine: string | null }>
+  /**
+   * その日の時間割を書き換える。ファイルの今の中身が base と同じときだけ書く（なかったなら base は null）。
+   * ファイルがなければ作り、今日か先の日ならいつもの予定を写す
+   */
+  updateDay(date: string, base: string | null, edit: DayEdit): Promise<SaveResult>
+  /** 作業する時間（tasks/days/routine.md の frontmatter の work。0時からの分） */
+  getWorkHours(): Promise<WorkHours>
+  setWorkHours(hours: WorkHours): Promise<void>
   /** チケット（またはノート。キーは `notes/ファイル名`）のファイルの中身を読む。ないときは null */
   readTicket(fileName: string): Promise<string | null>
   /**
@@ -241,17 +238,6 @@ export interface MokkanApi {
    * 要らなければ null（そのときは今の版を覚える）。tasks/ のフォルダが使える状態になってから呼ぶ
    */
   getOnboarding(): Promise<Onboarding | null>
-  /**
-   * ノートを AI（パソコンの Claude Code）に送り、タスクの候補を出してもらう。チケットは作らない
-   * @param noteBase 画面が最後に読んだノートの中身（送るのはこの中身）
-   */
-  suggestTasksFromNote(
-    noteFileName: string,
-    noteBase: string,
-    options: { includeTranscript: boolean }
-  ): Promise<AiSuggestResult>
-  /** AI に候補を出してもらっている途中なら止める */
-  cancelSuggestTasks(): Promise<void>
   /** チケット・ノート・アーカイブを、タイトルと本文から探す */
   search(query: string, options: SearchOptions): Promise<SearchHit[]>
   /** ノートの点検（切れたリンク・見直していない知識など）。呼ぶたびにファイルを読む。結果はファイルに書かない */
@@ -267,6 +253,8 @@ export interface MokkanApi {
   copyLintReport(): Promise<number>
   /** ヘルプの「AI に頼む文」（help.ts の id）をクリップボードに入れる */
   copyHelpPrompt(id: string): Promise<void>
+  /** ノートからタスクを起こしてもらう、AI に頼む文（help.ts の notePromptText）をクリップボードに入れる */
+  copyNotePrompt(noteFileName: string): Promise<void>
   /** 今の tasks/ のフォルダの場所をクリップボードに入れる（AI をそこで起動してもらうため） */
   copyTasksDir(): Promise<void>
   /** 案内を閉じた（または設定を開いた）。今の版を覚え、次からは出さない */
@@ -294,6 +282,11 @@ export const IPC = {
   checkRuleFiles: 'mokkan:check-rule-files',
   updateRuleFiles: 'mokkan:update-rule-files',
   createNextRepeat: 'mokkan:create-next-repeat',
+  completeTicket: 'mokkan:complete-ticket',
+  readDay: 'mokkan:read-day',
+  updateDay: 'mokkan:update-day',
+  getWorkHours: 'mokkan:get-work-hours',
+  setWorkHours: 'mokkan:set-work-hours',
   readTicket: 'mokkan:read-ticket',
   saveTicket: 'mokkan:save-ticket',
   discardIfEmpty: 'mokkan:discard-if-empty',
@@ -318,7 +311,6 @@ export const IPC = {
   fixLink: 'mokkan:fix-link',
   copyLintReport: 'mokkan:copy-lint-report',
   copyHelpPrompt: 'mokkan:copy-help-prompt',
-  copyTasksDir: 'mokkan:copy-tasks-dir',
-  suggestTasksFromNote: 'mokkan:suggest-tasks-from-note',
-  cancelSuggestTasks: 'mokkan:cancel-suggest-tasks'
+  copyNotePrompt: 'mokkan:copy-note-prompt',
+  copyTasksDir: 'mokkan:copy-tasks-dir'
 } as const

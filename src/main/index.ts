@@ -25,19 +25,19 @@ import {
   helpHandlers,
   isExternalUrl,
   normalizeCreateNoteRequest,
+  normalizeDayEdit,
   normalizeFromNoteOptions,
   normalizeTag,
   normalizeTemplateName,
   normalizeTitle,
   onboardingHandlers,
+  requireDate,
   requireString,
   requireStringArray,
   settingsHandlers,
   ticketHandlers
 } from './ipc'
-import { cancelAi, suggestTasksFromNote } from './aiTasks'
 import { TaskStore } from './taskStore'
-import bundledRules from '../../templates/RULES.md?raw'
 
 // 開発中は設定やキャッシュを配布版と分ける（%APPDATA%\mokkan-dev）
 if (!app.isPackaged) {
@@ -133,30 +133,35 @@ function registerIpc(): void {
         normalizeFromNoteOptions(options)
       )
   )
-  // ノートを AI（パソコンの Claude Code か Cursor CLI。設定で選ぶ）に送り、タスクの候補を出してもらう。
-  // チケットは作らない。使う AI は画面から受け取らず、設定から読む
-  ipcMain.handle(
-    IPC.suggestTasksFromNote,
-    (_, noteFileName: unknown, noteBase: unknown, options: unknown) =>
-      suggestTasksFromNote(
-        requireStore(),
-        requireString(noteFileName, 'noteFileName'),
-        requireString(noteBase, 'noteBase'),
-        typeof options === 'object' &&
-          options !== null &&
-          (options as Record<string, unknown>).includeTranscript === true,
-        bundledRules,
-        getAiService()
-      )
-  )
-  ipcMain.handle(IPC.cancelSuggestTasks, () => cancelAi())
   ipcMain.handle(IPC.createNextRepeat, (_, fileName: unknown) =>
     requireStore().createNextRepeat(requireString(fileName, 'fileName'), getUserName())
+  )
+  ipcMain.handle(IPC.completeTicket, (_, fileName: unknown) =>
+    requireStore().completeTicket(
+      requireString(fileName, 'fileName'),
+      formatDate(new Date()),
+      getUserName()
+    )
+  )
+  ipcMain.handle(IPC.readDay, (_, date: unknown) => requireStore().readDay(requireDate(date)))
+  ipcMain.handle(IPC.updateDay, (_, date: unknown, base: unknown, edit: unknown) =>
+    requireStore().updateDay(
+      requireDate(date),
+      base === null ? null : requireString(base, 'base'),
+      normalizeDayEdit(edit),
+      formatDate(new Date())
+    )
   )
 
   const handlers = {
     ...ticketHandlers(requireStore, (path) => shell.openPath(path)),
-    ...helpHandlers((text) => clipboard.writeText(text)),
+    ...helpHandlers(
+      (text) => clipboard.writeText(text),
+      (key) =>
+        requireStore()
+          .getState()
+          .notes.some((n) => n.fileName === key)
+    ),
     ...settingsHandlers({
       getListSort,
       saveListSort,
@@ -167,7 +172,9 @@ function registerIpc(): void {
       getTemplateChoice,
       saveTemplateChoice,
       getAiService,
-      saveAiService
+      saveAiService,
+      getWorkHours: () => requireStore().readWorkHours(),
+      saveWorkHours: (hours) => requireStore().saveWorkHours(hours)
     })
   }
   for (const [channel, handler] of Object.entries(handlers)) {
@@ -217,10 +224,10 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
-    // 上の帯は、ボタンをすべてアイコンだけにすると画面の幅 700px まで1行に収まる。
+    // 上の帯は、ボタンをすべてアイコンだけにすると画面の幅 740px まで1行に収まる（表示の切り替えは5つ）。
     // それより狭めると「＋ 新規」が画面の外に出るので、窓はここまでにする。minWidth は枠を含む幅なので、
     // Windows の枠（左右で十数 px）の分を足しておく
-    minWidth: 720,
+    minWidth: 760,
     show: false,
     autoHideMenuBar: true,
     title: windowTitle(),

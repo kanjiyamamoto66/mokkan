@@ -4,6 +4,7 @@
 import { fillTemplate, splitFrontmatter, type Ticket } from './ticket'
 import { assigneeField, setFields, replaceBody, type FieldUpdates } from './frontmatter'
 import { validDate } from './schedule'
+import { formatDuration } from './duration'
 
 export type RepeatUnit = 'd' | 'w' | 'm'
 /** 第何週か。'last' は最終、'last2'〜'last4' は後ろから2〜4番目 */
@@ -290,6 +291,33 @@ export function nextOccurrence(rule: RepeatRule, anchor: string, completedOn: st
   }
 }
 
+/**
+ * 規則がその日に当たるか（時間割のいつもの予定に使う。days/routine.md）
+ * - `after:` は完了した日から数えるので、決まった日には当たらない（false）
+ * - `every:` は数え始めの日（startsOn）から n 日・週・か月ごと。startsOn がなければ false
+ */
+export function occursOn(rule: RepeatRule, date: string, startsOn: string | null = null): boolean {
+  switch (rule.kind) {
+    case 'after':
+      return false
+    case 'every': {
+      if (startsOn === null || date < startsOn) return false
+      if (rule.unit !== 'm') {
+        const step = rule.unit === 'w' ? rule.n * 7 : rule.n
+        return daysBetween(startsOn, date) % step === 0
+      }
+      const from = toDate(startsOn)
+      const to = toDate(date)
+      const months =
+        (to.getUTCFullYear() - from.getUTCFullYear()) * 12 + to.getUTCMonth() - from.getUTCMonth()
+      return months % rule.n === 0 && addMonths(startsOn, months) === date
+    }
+    default:
+      // 前の日から数えた次の日が、その日なら当たる
+      return nextOccurrence(rule, addDays(date, -1), date) === date
+  }
+}
+
 /** 2つの `YYYY-MM-DD` の日数の差（b - a） */
 export function daysBetween(a: string, b: string): number {
   return Math.round((toDate(b).getTime() - toDate(a).getTime()) / 86_400_000)
@@ -354,7 +382,7 @@ export function withTitle(text: string, title: string): string {
 
 /**
  * 次回分のチケットの中身を作る（RULES.md「完了にするとき」）
- * タイトル・tags・priority・repeat・parent・assignee を引き継ぎ、本文のメモは引き継がない
+ * タイトル・tags・priority・repeat・parent・assignee・estimate を引き継ぎ、本文のメモは引き継がない
  * @param author 作成者（設定の「自分の名前」）。空なら空のまま
  */
 export function buildNextTicket(
@@ -376,6 +404,8 @@ export function buildNextTicket(
   }
   // 優先度が空なら、テンプレートの値のままにする
   if (ticket.priority !== null) fields.priority = ticket.priority
+  // 所要時間は、同じ作業なので次回も同じにする
+  if (ticket.estimate !== null) fields.estimate = formatDuration(ticket.estimate)
   if (author) fields.author = author
   const text = setFields(fillTemplate(template, id, created), fields)
   return ticket.title ? withTitle(text, ticket.title) : text

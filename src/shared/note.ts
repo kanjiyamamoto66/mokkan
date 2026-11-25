@@ -343,7 +343,7 @@ export function plainListItem(line: string): string {
 }
 
 /**
- * 「宿題」の項目の文から、チケットのタイトルと担当者を取り出す（RULES.md の手順と同じく担当者を拾う）
+ * 「宿題」の項目の文から、チケットのタイトルと担当者を取り出す（skill mokkan-creating-tasks-from-notes の手順と同じく担当者を拾う）
  * `見積書を送る（高橋・田中）` → タイトル `見積書を送る`、担当者 `[高橋, 田中]`
  */
 export function parseHomeworkItem(text: string): { title: string; assignees: string[] } {
@@ -387,7 +387,7 @@ export function attachHomework(text: string, itemText: string, suffix: string): 
 }
 
 /**
- * ノートの「宿題」の最後に、箇条書きの1行（`- item`）を足す（RULES.md「ノートからタスクを起こす」）
+ * ノートの「宿題」の最後に、箇条書きの1行（`- item`）を足す（skill mokkan-creating-tasks-from-notes の手順と同じ）
  * - 「宿題」の見出しがなければ、「文字起こし」の見出しの前（なければ本文の最後）に見出しごと足す
  * - 足した行のほかは1文字も変えない（本文の最後に足すときだけ、末尾の空行を1つにまとめる）
  */

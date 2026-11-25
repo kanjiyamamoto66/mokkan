@@ -73,6 +73,23 @@ import {
 } from '../shared/tagColor'
 import { validDate } from '../shared/schedule'
 import {
+  DAYS_DIR,
+  DEFAULT_WORK_HOURS,
+  ROUTINE_FILE,
+  applyDayEdit,
+  dateOfDayFile,
+  dayEditError,
+  entryLine,
+  isValidDate,
+  newDayText,
+  parseRoutine,
+  routineFor,
+  routineWorkHours,
+  setRoutineWorkHours,
+  type DayEdit,
+  type WorkHours
+} from '../shared/day'
+import {
   fillTemplate,
   formatDate,
   generateId,
@@ -92,6 +109,13 @@ import sampleHowto from '../../templates/samples/notes/howto.md?raw'
 import sampleReference from '../../templates/samples/notes/reference.md?raw'
 import sampleExplanation from '../../templates/samples/notes/explanation.md?raw'
 import sampleIndex from '../../templates/samples/notes/index.md?raw'
+import skillTasksFromNote from '../../templates/skills/mokkan-creating-tasks-from-notes/SKILL.md?raw'
+import skillIngestKnowledge from '../../templates/skills/mokkan-ingesting-knowledge/SKILL.md?raw'
+import skillReviewKnowledge from '../../templates/skills/mokkan-reviewing-knowledge/SKILL.md?raw'
+import skillProjectIndex from '../../templates/skills/mokkan-writing-project-indexes/SKILL.md?raw'
+import skillTidyTickets from '../../templates/skills/mokkan-tidying-tickets/SKILL.md?raw'
+import skillPlanningDays from '../../templates/skills/mokkan-planning-days/SKILL.md?raw'
+import { SKILL_NAMES, skillPath, withRuleBundle } from '../shared/ruleFiles'
 
 /** 監視で拾った変更をまとめて画面に送るまでの待ち時間 */
 const EMIT_DELAY_MS = 50
@@ -114,16 +138,28 @@ function isErrno(error: unknown, code: string): boolean {
   return (error as NodeJS.ErrnoException | null)?.code === code
 }
 
+/** skill（AI の作業の手順）の原本。名前は SKILL_NAMES と同じ順 */
+const BUNDLED_SKILLS: Record<(typeof SKILL_NAMES)[number], string> = {
+  'mokkan-creating-tasks-from-notes': skillTasksFromNote,
+  'mokkan-ingesting-knowledge': skillIngestKnowledge,
+  'mokkan-reviewing-knowledge': skillReviewKnowledge,
+  'mokkan-writing-project-indexes': skillProjectIndex,
+  'mokkan-tidying-tickets': skillTidyTickets,
+  'mokkan-planning-days': skillPlanningDays
+}
+
 /**
- * tasks/ 直下に置くルールのファイルと、その原本
+ * tasks/ に置くルールのファイルと、その原本（名前は tasks/ からのパス）
  * CLAUDE.md（Claude Code が読む）と AGENTS.md（ほかの多くの AI ツールが読む）は、同じ原本（AI_GUIDE.md）から作る
+ * skill は `.claude/skills/<名前>/SKILL.md`（Claude Code と Cursor が読む）。RULES.md と一緒に更新する（withRuleBundle）
  */
 export const RULE_FILES: ReadonlyArray<{ name: string; content: string }> = [
   { name: 'RULES.md', content: bundledRules },
   { name: 'TEMPLATE.md', content: bundledTemplate },
   { name: 'NOTE_TEMPLATE.md', content: bundledNoteTemplate },
   { name: 'CLAUDE.md', content: bundledAiGuide },
-  { name: 'AGENTS.md', content: bundledAiGuide }
+  { name: 'AGENTS.md', content: bundledAiGuide },
+  ...SKILL_NAMES.map((name) => ({ name: skillPath(name), content: BUNDLED_SKILLS[name] }))
 ]
 
 /** テンプレートを置くフォルダ（tasks/ の中）と、その中の種類ごとのフォルダ */
@@ -219,6 +255,11 @@ export class TaskStore {
   private tagQueue: Promise<unknown> = Promise.resolve()
   /** 起動時に見出しを付け足したファイルの数（画面で案内する） */
   private renamedOnStart = 0
+  private readonly daysDir: string | null
+  /** days/ のファイル（日付か 'routine'）と更新日時。中身は持たず、画面が開くときに読む */
+  private readonly days = new Map<string, number>()
+  /** 時間割の書き換えを、1件ずつ順に行うための待ち行列 */
+  private dayQueue: Promise<unknown> = Promise.resolve()
 
   constructor(
     private readonly tasksDir: string | null,
@@ -229,6 +270,7 @@ export class TaskStore {
     this.ticketsDir = tasksDir ? resolve(tasksDir, 'tickets') : null
     this.archiveDir = tasksDir ? resolve(tasksDir, ARCHIVE_DIR) : null
     this.notesDir = tasksDir ? resolve(tasksDir, NOTES_DIR) : null
+    this.daysDir = tasksDir ? resolve(tasksDir, DAYS_DIR) : null
   }
 
   getState(): AppState {
@@ -242,7 +284,8 @@ export class TaskStore {
       noteFolders: [...this.noteFolders].sort((a, b) => a.localeCompare(b, 'ja')),
       tagColors: { ...this.tagColors },
       tagFile: { error: this.tagFileError, conflicts: [...this.tagConflicts].sort() },
-      renamedOnStart: this.renamedOnStart
+      renamedOnStart: this.renamedOnStart,
+      days: Object.fromEntries(this.days)
     }
   }
 
@@ -255,7 +298,7 @@ export class TaskStore {
     // tickets/・archive/ の直下と、notes/ の下（フォルダの中も）を監視する
     // （archive/ と notes/ は後から作られることがあるので、tasks/ から監視し、ほかのフォルダは ignored で除く）
     const root = this.root!
-    const dirs = new Set([root, this.ticketsDir, this.archiveDir, this.notesDir])
+    const dirs = new Set([root, this.ticketsDir, this.archiveDir, this.notesDir, this.daysDir])
     this.watcher = watch(root, {
       ignoreInitial: true,
       // tasks/ → notes/ → フォルダ（MAX_NOTE_FOLDER_DEPTH 段）の中のファイルまで。
@@ -268,7 +311,8 @@ export class TaskStore {
         !dirs.has(resolve(path)) &&
         this.noteFolderOf(path) === null &&
         this.keyOf(path) === null &&
-        !this.isTagsPath(path)
+        !this.isTagsPath(path) &&
+        this.dayNameOf(path) === null
     })
     this.watcher
       .on('add', (path) => void this.loadAny(path).then(() => this.scheduleEmit()))
@@ -276,6 +320,8 @@ export class TaskStore {
       .on('unlink', (path) => {
         const key = this.keyOf(path)
         if (key) this.forget(key)
+        const day = this.dayNameOf(path)
+        if (day) this.days.delete(day)
         const done = this.isTagsPath(path) ? this.loadTags() : Promise.resolve()
         void done.then(() => this.scheduleEmit())
       })
@@ -314,6 +360,157 @@ export class TaskStore {
     }
     if (this.notesDir && existsSync(this.notesDir)) await this.loadNotesIn(this.notesDir)
     await this.loadTags()
+    if (this.daysDir && existsSync(this.daysDir)) {
+      const entries = await readdir(this.daysDir, { withFileTypes: true })
+      await Promise.all(
+        entries.filter((e) => e.isFile()).map((e) => this.loadDay(join(this.daysDir!, e.name)))
+      )
+    }
+  }
+
+  /** days/ の直下の日のファイル（`2026-11-24.md`）なら日付、routine.md なら 'routine'。そうでなければ null */
+  private dayNameOf(path: string): string | null {
+    if (!this.daysDir) return null
+    const full = resolve(path)
+    if (dirname(full) !== this.daysDir) return null
+    const name = basename(full)
+    if (name === ROUTINE_FILE) return 'routine'
+    return dateOfDayFile(name)
+  }
+
+  /** 日のファイルの更新日時を覚え直す（中身は画面が開くときに読む） */
+  private async loadDay(path: string): Promise<void> {
+    const day = this.dayNameOf(path)
+    if (!day) return
+    try {
+      this.days.set(day, (await stat(path)).mtimeMs)
+    } catch (error) {
+      if (!isErrno(error, 'ENOENT')) throw error
+      this.days.delete(day)
+    }
+  }
+
+  private dayPath(day: string): string {
+    if (!this.daysDir || (day !== 'routine' && !isValidDate(day))) {
+      throw new Error(`時間割の日付が正しくありません：${day}`)
+    }
+    return join(this.daysDir, day === 'routine' ? ROUTINE_FILE : `${day}.md`)
+  }
+
+  private async readOptional(path: string): Promise<string | null> {
+    try {
+      return await readFile(path, 'utf8')
+    } catch (error) {
+      if (isErrno(error, 'ENOENT')) return null
+      throw error
+    }
+  }
+
+  /**
+   * その日の時間割（days/YYYY-MM-DD.md）といつもの予定（days/routine.md）の中身を読む。ないものは null
+   */
+  async readDay(date: string): Promise<{ text: string | null; routine: string | null }> {
+    const [text, routine] = await Promise.all([
+      this.readOptional(this.dayPath(date)),
+      this.readOptional(this.dayPath('routine'))
+    ])
+    return { text, routine }
+  }
+
+  /** 作業する時間（days/routine.md の frontmatter の work）。ない・読めないときは 9:00〜18:00 */
+  async readWorkHours(): Promise<WorkHours> {
+    if (!this.daysDir) return DEFAULT_WORK_HOURS
+    return routineWorkHours(await this.readOptional(this.dayPath('routine'))) ?? DEFAULT_WORK_HOURS
+  }
+
+  /**
+   * 作業する時間を days/routine.md の frontmatter の work に書く（その行だけを書き換える。なければ作る）。
+   * 時間割の書き換えと同じ待ち行列で1件ずつ行う
+   */
+  saveWorkHours(hours: WorkHours): Promise<void> {
+    const run = this.dayQueue.then(() => this.saveWorkHoursNow(hours))
+    this.dayQueue = run.catch(() => undefined)
+    return run
+  }
+
+  private async saveWorkHoursNow(hours: WorkHours): Promise<void> {
+    if (this.folderStatus !== 'ready' || !this.daysDir) {
+      throw new Error('tasks フォルダが使える状態ではありません')
+    }
+    const path = this.dayPath('routine')
+    const current = await this.readOptional(path)
+    const next = setRoutineWorkHours(current, hours)
+    if (current === null) {
+      await mkdir(this.daysDir, { recursive: true })
+      // 同期などで現れていたら上書きせず、読み直して書き換える
+      try {
+        await writeFile(path, next, { flag: 'wx' })
+      } catch (error) {
+        if (!isErrno(error, 'EEXIST')) throw error
+        const appeared = await this.readOptional(path)
+        await writeFile(path, setRoutineWorkHours(appeared, hours))
+      }
+    } else if (next !== current) {
+      await writeFile(path, next)
+    }
+    await this.loadDay(path)
+    this.scheduleEmit()
+  }
+
+  /**
+   * その日の時間割を書き換える。ファイルの今の中身が base（画面が最後に読んだ中身。なかったなら null）と
+   * 同じときだけ書く。ファイルがなければ作り、今日か先の日ならいつもの予定（routine.md）の当たる行を写す
+   * @param today 今日（YYYY-MM-DD。いつもの予定を写すかを決める）
+   */
+  updateDay(date: string, base: string | null, edit: DayEdit, today: string): Promise<SaveResult> {
+    const run = this.dayQueue.then(() => this.updateDayNow(date, base, edit, today))
+    this.dayQueue = run.catch(() => undefined)
+    return run
+  }
+
+  private async updateDayNow(
+    date: string,
+    base: string | null,
+    edit: DayEdit,
+    today: string
+  ): Promise<SaveResult> {
+    if (this.folderStatus !== 'ready' || !this.daysDir) {
+      throw new Error('tasks フォルダが使える状態ではありません')
+    }
+    if (!isValidDate(date)) throw new Error(`時間割の日付が正しくありません：${date}`)
+    const invalid = dayEditError(edit)
+    if (invalid) throw new Error(invalid)
+    const path = this.dayPath(date)
+    const current = await this.readOptional(path)
+    if (current !== base) return { status: 'conflict', text: current ?? '' }
+
+    let text = current
+    if (text === null) {
+      const routine = date >= today ? await this.readOptional(this.dayPath('routine')) : null
+      const lines = routine
+        ? routineFor(parseRoutine(routine), date).map((r) => entryLine(r.start, r.end, r.content))
+        : []
+      text = newDayText(date, lines)
+    }
+    const next = applyDayEdit(text, edit)
+    if (next === null) return { status: 'conflict', text: current ?? '' }
+    // 中身が変わらない（ファイルがあるときの touch など）なら書かない（更新日時も変えない）
+    if (next === current) return { status: 'saved', text: next }
+    if (current === null) {
+      await mkdir(this.daysDir, { recursive: true })
+      // 同じ日のファイルが同期などで現れていたら上書きしない
+      try {
+        await writeFile(path, next, { flag: 'wx' })
+      } catch (error) {
+        if (!isErrno(error, 'EEXIST')) throw error
+        return { status: 'conflict', text: (await this.readOptional(path)) ?? '' }
+      }
+    } else {
+      await writeFile(path, next)
+    }
+    await this.loadDay(path)
+    this.scheduleEmit()
+    return { status: 'saved', text: next }
   }
 
   /** notes/ の中のフォルダを1つ読み、その下のフォルダもたどる（隠しフォルダは除く） */
@@ -524,6 +721,7 @@ export class TaskStore {
   /** tickets/・archive/・notes/ のファイルか TAGS.md を読み直す */
   private async loadAny(path: string): Promise<void> {
     if (this.isTagsPath(path)) await this.loadTags()
+    else if (this.dayNameOf(path)) await this.loadDay(path)
     else await this.load(path)
   }
 
@@ -604,15 +802,20 @@ export class TaskStore {
 
   /**
    * 指定したルールのファイルを原本にする。ないものは置き、違うものは今のファイルを OS のごみ箱に移してから置く
-   * テンプレートの見本は、ないときだけ置く
+   * テンプレートの見本は、ないときだけ置く。RULES.md か skill を選んだら、RULES.md と skill をすべて一緒に更新する
    * @param names RULE_FILES・SAMPLE_TEMPLATES の名前。それ以外は受け付けない
    */
   async updateRuleFiles(names: string[]): Promise<RuleFileStatus[]> {
     if (this.folderStatus !== 'ready' || !this.tasksDir) {
       throw new Error('tasks フォルダが使える状態ではありません')
     }
-    const targets = names.map((name) => {
-      const file = [...RULE_FILES, ...SAMPLE_TEMPLATES].find((f) => f.name === name)
+    const known = [...RULE_FILES, ...SAMPLE_TEMPLATES]
+    const expanded = withRuleBundle(
+      names,
+      known.map((f) => f.name)
+    )
+    const targets = expanded.map((name) => {
+      const file = known.find((f) => f.name === name)
       if (!file) throw new Error(`ルールのファイルではありません：${name}`)
       return file
     })
@@ -685,13 +888,14 @@ export class TaskStore {
       (id, created) => {
         const filled = template.fill(id, created)
         const knowledge = parseNote('x.md', filled).type === 'knowledge'
-        return setDefaultsWhereEmpty(
-          setFields(filled, { date: created }, NOTE_FIELD_ORDER),
+        const text = setDefaultsWhereEmpty(
+          setFields(filled, { date: validDate(request.date ?? null) ?? created }, NOTE_FIELD_ORDER),
           { ...(knowledge ? { reviewed: created } : {}), ...(author ? { author } : {}) },
           NOTE_FIELD_ORDER
         )
+        return request.title ? withTitle(text, request.title) : text
       },
-      '',
+      request.title ?? '',
       folder
     )
     this.createdBySelf.set(fileName, text)
@@ -813,7 +1017,7 @@ export class TaskStore {
 
   /**
    * ノートからチケットを起こし、ノートの「宿題」に `→ [ID](../tickets/ファイル名)` を書き戻す
-   * （RULES.md「ノートからタスクを起こす」）
+   * （skill mokkan-creating-tasks-from-notes の手順と同じ）
    * 書き戻すのは「宿題」の見出しがあるノートだけ（知識のノートなどにリンクを書き足さない）
    * チケットには `source` にノートの id を入れ、ノートのタグと、ノートのプロジェクトのタグ
    * （notes/ の直下のフォルダ名。共通/ を除く）を付ける。ファイル名には初めから見出しを付ける
@@ -888,6 +1092,32 @@ export class TaskStore {
     } catch (error) {
       return notWritten(`ノートに書き込めませんでした：${(error as Error).message}`)
     }
+  }
+
+  /**
+   * チケットを完了にする（`status: done` と `done` に今日）。変えるのはその2つの行だけ。
+   * 繰り返しがあれば次回分も作る（時間割の「完了」から使う。編集画面で完了にするときと同じ結果にする）
+   * @returns 次回分を作った結果。すでに完了していれば何も変えない
+   */
+  async completeTicket(fileName: string, today: string, author = ''): Promise<RepeatResult> {
+    if (fileName.startsWith(ARCHIVE_PREFIX) || isNoteKey(fileName)) {
+      throw new Error('アーカイブしたチケットとノートは完了にできません')
+    }
+    const current = await this.readTicket(fileName)
+    if (current === null) throw new Error(`チケットが見つかりません：${fileName}`)
+    if (parseTicket(fileName, current).status !== 'done') {
+      const result = await this.saveTicket(
+        fileName,
+        current,
+        setFields(current, { status: 'done', done: today })
+      )
+      if (result.status !== 'saved') {
+        throw new Error(
+          'チケットがちょうど書き換えられたので、完了にできませんでした。もう一度試してください'
+        )
+      }
+    }
+    return this.createNextRepeat(fileName, author)
   }
 
   /**
@@ -1216,12 +1446,6 @@ export class TaskStore {
       return 'not-initialized'
     }
     return 'ready'
-  }
-
-  /** tasks/RULES.md を読む。なければ同梱の原本（AI にノートからタスクを起こす手順を渡すため） */
-  async readRules(): Promise<string> {
-    if (!this.tasksDir) return bundledRules
-    return this.readTemplateFile('RULES.md', bundledRules)
   }
 
   private async readTemplate(): Promise<string> {

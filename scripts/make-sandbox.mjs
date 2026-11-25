@@ -1,14 +1,16 @@
 // 動作確認用のタスクデータを sandbox/tasks に作る（sandbox/ は .gitignore 済み）
 // 既にあるファイルには触れない。作り直したいときは sandbox/ を消してから実行する
+// 別のフォルダに作るときは、場所を引数で渡す（スクリーンショットを撮るときなど。npm run screenshots を参照）
 //
 //   npm run sandbox
+//   node scripts/make-sandbox.mjs sandbox/screenshots
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const tasksDir = join(root, 'sandbox', 'tasks')
+const tasksDir = process.argv[2] ? resolve(process.argv[2]) : join(root, 'sandbox', 'tasks')
 const ticketsDir = join(tasksDir, 'tickets')
 
 /** 今日から days 日ずらした `YYYY-MM-DD` */
@@ -25,6 +27,7 @@ function ticket({
   priority = 2,
   start = '',
   due = '',
+  estimate = '',
   tags = [],
   parent = '',
   source = '',
@@ -41,6 +44,7 @@ function ticket({
     `priority: ${priority}`,
     `start:${value(start)}`,
     `due:${value(due)}`,
+    `estimate:${value(estimate)}`,
     'repeat:',
     `tags: [${tags.join(', ')}]`,
     `parent:${value(parent)}`,
@@ -69,6 +73,8 @@ const files = {
     id: '20261001-0910-ch01',
     status: 'doing',
     due: day(3),
+    // 所要時間（時間割に置くときの長さ）の例
+    estimate: '30m',
     tags: ['家'],
     parent: '20261001-0900-pa01',
     title: '医療費の領収書を集める',
@@ -78,6 +84,7 @@ const files = {
     id: '20261005-1400-ov01',
     priority: 1,
     due: day(-1),
+    estimate: '1h30m',
     // キーと値のタグ（顧客/…・種類/…）の例
     tags: ['仕事', 'A社', '顧客/A社', '種類/見積'],
     title: '見積書を送る'
@@ -306,6 +313,27 @@ const notes = {
     '2. 金額は税込で書く',
     '3. PDF にして送る',
     ''
+  ].join('\n'),
+  // ノートの点検で見つかるものの例（長く見直していない・確かめていない記述・切れたリンク・入口の一覧にない）
+  'A社/20261003-0900-kn02_A社の窓口.md': [
+    '---',
+    'id: 20261003-0900-kn02',
+    'type: knowledge',
+    `date: ${day(-200)}`,
+    `reviewed: ${day(-200)}`,
+    'tags: [A社]',
+    'author: 高橋',
+    `created: ${day(-200)}`,
+    '---',
+    '',
+    '# A社の窓口',
+    '',
+    'A社とやりとりするときの担当者と連絡のしかた。',
+    '',
+    '- 見積と契約の窓口は田中さん（要確認：担当が変わったかもしれない）',
+    '- 連絡はメールで、件名に案件名を入れる',
+    '- 詳しくは [前の担当の引き継ぎ](../共通/20260101-0900-zzzz_引き継ぎ.md)',
+    ''
   ].join('\n')
 }
 
@@ -348,4 +376,47 @@ for (const [name, source] of [
     readFileSync(join(root, 'templates', 'samples', 'notes', `${source}.md`), 'utf8')
   )
 }
+// 標準の skill（アプリの「準備する」と同じ場所に置く）
+for (const name of readdirSync(join(root, 'templates', 'skills'))) {
+  mkdirSync(join(tasksDir, '.claude', 'skills', name), { recursive: true })
+  write(
+    join(tasksDir, '.claude', 'skills', name, 'SKILL.md'),
+    readFileSync(join(root, 'templates', 'skills', name, 'SKILL.md'), 'utf8')
+  )
+}
+// 時間割：いつもの予定と、今日の時間割
+mkdirSync(join(tasksDir, 'days'), { recursive: true })
+write(
+  join(tasksDir, 'days', 'routine.md'),
+  [
+    // 作業する時間。既定（9:00〜18:00）と違う値にして、AI が読んでいるかを評価で見分けられるようにする
+    '---',
+    'work: 09:00-17:30',
+    '---',
+    '',
+    '# いつもの予定',
+    '',
+    '- weekdays 09:00-09:15 朝会',
+    '- weekly:mon,thu 11:00-12:00 A社定例',
+    `- every:2w@${day(0)} 15:00-16:00 1on1`,
+    ''
+  ].join('\n')
+)
+write(
+  join(tasksDir, 'days', `${day(0)}.md`),
+  [
+    '---',
+    `date: ${day(0)}`,
+    '---',
+    '',
+    '- 09:00-09:15 朝会',
+    '- 09:30-11:00 [見積書を送る](../tickets/20261005-1400-ov01_見積書を送る.md)',
+    '- 12:00-13:00 昼休み',
+    '- 13:00-13:30 [医療費の領収書を集める](../tickets/20261001-0910-ch01.md)',
+    '- 15:00-16:00 1on1',
+    '',
+    'メモ：午後は来客あり',
+    ''
+  ].join('\n')
+)
 console.log(`sandbox：${tasksDir}`)

@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   AI_SERVICES,
-  aiServiceOptionLabel,
+  AI_SERVICE_NAMES,
   asAiService,
   type AiService
 } from '../../../shared/aiService'
 import type { RuleFileStatus } from '../../../shared/api'
+import { isRuleBundle, ruleFileLabel } from '../../../shared/ruleFiles'
+import { formatTime, parseTime } from '../../../shared/day'
 
 interface Props {
   userName: string
@@ -28,7 +30,7 @@ function errorMessage(e: unknown): string {
 }
 
 /**
- * tasks/ 直下のルールのファイル（RULES.md・テンプレート・CLAUDE.md・AGENTS.md）を、このアプリの原本にする
+ * tasks/ のルールのファイル（RULES.md・テンプレート・CLAUDE.md・AGENTS.md・skill）を、このアプリの原本にする
  * 違うファイルは、今のファイルを OS のごみ箱に移してから置き換える（手で直した内容はごみ箱から戻せる）
  */
 function RuleFiles(): React.JSX.Element {
@@ -80,8 +82,9 @@ function RuleFiles(): React.JSX.Element {
       <h3>ルールのファイル</h3>
       <p className="dialog-note">
         tasks フォルダの RULES.md などを、このアプリの版の原本にします。AI
-        がノートの書き方やタスクの起こし方に従うには、最新の RULES.md と CLAUDE.md・AGENTS.md
-        が要ります。テンプレートの見本は、ないときだけ置きます（手で直したものは置き換えません）。
+        がノートの書き方やタスクの起こし方に従うには、最新の RULES.md・CLAUDE.md・AGENTS.md と
+        skill（.claude/skills/ に置く作業の手順）が要ります。RULES.md と skill
+        は一緒に更新します。テンプレートの見本は、ないときだけ置きます（手で直したものは置き換えません）。
       </p>
       {files === null && !error && <p className="dialog-note">確かめています…</p>}
       {files && (
@@ -95,12 +98,18 @@ function RuleFiles(): React.JSX.Element {
                   checked={chosen.has(f.name)}
                   onChange={(e) => {
                     const next = new Set(chosen)
-                    if (e.target.checked) next.add(f.name)
-                    else next.delete(f.name)
+                    // RULES.md と skill は一緒に更新するので、チェックもまとめて付け外しする
+                    const group = isRuleBundle(f.name)
+                      ? files.filter((g) => isRuleBundle(g.name) && g.state !== 'same')
+                      : [f]
+                    for (const g of group) {
+                      if (e.target.checked) next.add(g.name)
+                      else next.delete(g.name)
+                    }
                     setChosen(next)
                   }}
                 />
-                <code>{f.name}</code>
+                <code title={f.name}>{ruleFileLabel(f.name)}</code>
                 <span className={`rule-state ${f.state}`}>
                   {f.sample
                     ? f.state === 'missing'
@@ -126,7 +135,78 @@ function RuleFiles(): React.JSX.Element {
   )
 }
 
-/** 「AI でタスクを起こす」で使う AI。選んだらすぐ保存する */
+/**
+ * 作業する時間（時間割で薄く塗り、入り切るかの目安に使う）。「保存」で tasks/days/routine.md の
+ * frontmatter の work に書く（AI が時間割を組むときにも読めるように、個人設定ではなくファイルに置く）
+ */
+function WorkHoursSetting(): React.JSX.Element {
+  const [start, setStart] = useState('')
+  const [end, setEnd] = useState('')
+  const [message, setMessage] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    window.api
+      .getWorkHours()
+      .then((hours) => {
+        setStart(formatTime(hours.start))
+        setEnd(formatTime(hours.end))
+      })
+      .catch((e) => setError(errorMessage(e)))
+  }, [])
+
+  const save = async (): Promise<void> => {
+    setError(null)
+    setMessage(null)
+    const s = parseTime(start)
+    const e = parseTime(end)
+    if (s === null || e === null || e <= s) {
+      setError('始まりと終わりを 9:00 のように入れ、終わりを始まりより後にしてください')
+      return
+    }
+    try {
+      await window.api.setWorkHours({ start: s, end: e })
+      setMessage('保存しました。')
+    } catch (err) {
+      setError(errorMessage(err))
+    }
+  }
+
+  return (
+    <section className="dialog-section">
+      <h3>時間割</h3>
+      <div className="dialog-field">
+        <span>作業する時間</span>
+        <span className="dialog-inline">
+          <input
+            aria-label="作業する時間の始まり"
+            value={start}
+            size={5}
+            onChange={(e) => setStart(e.target.value)}
+          />
+          〜
+          <input
+            aria-label="作業する時間の終わり"
+            value={end}
+            size={5}
+            onChange={(e) => setEnd(e.target.value)}
+          />
+          <button type="button" onClick={() => void save()}>
+            保存
+          </button>
+        </span>
+        <small>
+          時間割でこの時間を薄く塗り、候補のチケットが入り切るかの目安に使います。tasks フォルダの
+          days/routine.md に書くので、AI が時間割を組むときにも使います。
+        </small>
+      </div>
+      {message && <p className="dialog-note">{message}</p>}
+      {error && <p className="dialog-error">{error}</p>}
+    </section>
+  )
+}
+
+/** 使っている AI（「はじめに」とヘルプの起動のしかたの書き分けに使う）。選んだらすぐ保存する */
 function AiServiceSetting(): React.JSX.Element {
   const [service, setService] = useState<AiService | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -152,7 +232,7 @@ function AiServiceSetting(): React.JSX.Element {
     <section className="dialog-section">
       <h3>AI</h3>
       <label className="dialog-field">
-        <span>「AI でタスクを起こす」で使う AI</span>
+        <span>使っている AI</span>
         <select
           value={service ?? ''}
           disabled={service === null}
@@ -163,13 +243,14 @@ function AiServiceSetting(): React.JSX.Element {
         >
           {AI_SERVICES.map((s) => (
             <option key={s} value={s}>
-              {aiServiceOptionLabel(s)}
+              {AI_SERVICE_NAMES[s]}
             </option>
           ))}
         </select>
         <small>
-          このパソコンに入れてログインしたものを呼びます（Claude Code は claude、Cursor は Cursor
-          CLI の agent）。選ぶとすぐに保存します。
+          「？」の「はじめに」で、選んだ AI を mokkan
+          のデータのフォルダで起動するやり方を案内します。アプリから AI
+          を呼ぶことはありません。選ぶとすぐに保存します。
         </small>
       </label>
       {error && <p className="dialog-error">{error}</p>}
@@ -217,7 +298,10 @@ function SettingsDialog({ userName, folderReady, onSave, onClose }: Props): Reac
         onMouseDown={(e) => e.stopPropagation()}
       >
         <h2 id="settings-title">設定</h2>
-        <p className="dialog-note">この PC だけの設定です。tasks フォルダには保存しません。</p>
+        <p className="dialog-note">
+          この PC だけの設定です。tasks
+          フォルダには保存しません（作業する時間とルールのファイルを除く）。
+        </p>
         <form
           onSubmit={(e) => {
             e.preventDefault()
@@ -247,6 +331,7 @@ function SettingsDialog({ userName, folderReady, onSave, onClose }: Props): Reac
             </button>
           </div>
         </form>
+        {folderReady && <WorkHoursSetting />}
         <AiServiceSetting />
         {folderReady && <RuleFiles />}
       </div>

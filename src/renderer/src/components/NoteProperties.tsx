@@ -1,10 +1,9 @@
 // ノートの frontmatter を編集するフォーム（種類・日付・見直した日・フォルダ・作成者・タグ）と、このノートから起こしたチケット
 // 項目は変えたものだけを onChange で渡す
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FieldUpdates } from '../../../shared/frontmatter'
-import type { AiSuggestResult, FromNoteRequest } from '../../../shared/api'
-import AiTasksDialog from './AiTasksDialog'
+import type { FromNoteRequest } from '../../../shared/api'
 import {
   NOTE_TYPES,
   hasBackLink,
@@ -40,23 +39,12 @@ interface Props {
   selectedText: () => string
   /** カーソルのある「宿題」の項目の文。「宿題」の中でなければ null */
   homeworkItem: () => string | null
-  /** ノートを AI に送り、タスクの候補を出してもらう */
-  onSuggestTasks: (includeTranscript: boolean) => Promise<AiSuggestResult>
-  /** AI に送る本文の大きさと、「文字起こし」「宿題」の節があるか */
-  noteBodyInfo: () => NoteBodyInfo
+  /** 保存したノートに「宿題」の見出しがあるか（あれば、起こしたチケットへのリンクを書き戻す） */
+  hasHomework: () => boolean
   /** notes/ の下のフォルダ（移す先の候補） */
   folders: string[]
   /** ノートを別のフォルダに移す（空文字なら notes/ の直下） */
   onMove: (folder: string) => void
-}
-
-/** 保存した本文の大きさと、決まった見出しがあるか */
-export interface NoteBodyInfo {
-  bodyLength: number
-  /** 「文字起こし」の節があるか */
-  hasTranscript: boolean
-  /** 「宿題」の見出しがあるか（あれば、起こしたチケットへのリンクを書き戻す） */
-  hasHomework: boolean
 }
 
 /** 「＋ ここからチケット」を押したときの初めの値 */
@@ -147,8 +135,7 @@ function NoteProperties({
   onCreateTicket,
   selectedText,
   homeworkItem,
-  onSuggestTasks,
-  noteBodyInfo,
+  hasHomework,
   folders,
   onMove
 }: Props): React.JSX.Element {
@@ -169,8 +156,30 @@ function NoteProperties({
   // 編集画面のノートは画面で読み直したものなので、更新日時は裏方の一覧から取る
   const modified = notes.find((n) => n.fileName === note.fileName)?.modified ?? null
   const fromNote = useMemo(() => ticketsFromNote(note, tickets), [note, tickets])
-  /** AI に候補を出してもらう窓を開いているときの、本文の大きさ */
-  const [aiInfo, setAiInfo] = useState<NoteBodyInfo | null>(null)
+  /** 「AI に頼む文をコピー」を押した直後か（ボタンの文字を「コピーしました」にする） */
+  const [promptCopied, setPromptCopied] = useState(false)
+  const [copyError, setCopyError] = useState<string | null>(null)
+  const copiedTimer = useRef<number | null>(null)
+  useEffect(
+    () => () => {
+      if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current)
+    },
+    []
+  )
+  // 文は裏方がノートのキーから作る（画面から任意の文字を渡さない）
+  const copyPrompt = async (): Promise<void> => {
+    setCopyError(null)
+    try {
+      await window.api.copyNotePrompt(note.fileName)
+      setPromptCopied(true)
+      if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current)
+      copiedTimer.current = window.setTimeout(() => setPromptCopied(false), 2000)
+    } catch (e) {
+      setCopyError(
+        `コピーできませんでした：${(e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`
+      )
+    }
+  }
   /** 「＋ ここからチケット」の入力欄を開いているときの初めの値 */
   const [creating, setCreating] = useState<CreateDraft | null>(null)
   // 移す先の候補。開いているノートのフォルダが一覧になくても（読み込みの途中など）選べるようにする
@@ -308,7 +317,7 @@ function NoteProperties({
                 // すでに「→」が付いている項目は、その行には付けず「宿題」の最後に行を足す
                 homeworkItem: item && !hasBackLink(item) ? item : null,
                 assignee: parsed?.assignees ?? [],
-                hasHomework: noteBodyInfo().hasHomework
+                hasHomework: hasHomework()
               })
             }}
           >
@@ -318,13 +327,13 @@ function NoteProperties({
         {creating === null && (
           <button
             className="ghost from-note-add"
-            disabled={disabled || !note.id}
-            title="このノートを AI（パソコンの Claude Code か Cursor。設定で選ぶ）に送り、タスクの候補を出してもらいます。選んでから作ります"
-            onClick={() => setAiInfo(noteBodyInfo())}
+            title="このノートからタスクを起こしてもらう文をコピーします。AI のアプリ（Claude Code・Cursor など）で mokkan のデータのフォルダを開いて貼ると、候補を出してくれます（作るのは確かめてから）"
+            onClick={() => void copyPrompt()}
           >
-            AI でタスクを起こす…
+            {promptCopied ? 'コピーしました' : 'AI に頼む文をコピー'}
           </button>
         )}
+        {copyError && <p className="dialog-error">{copyError}</p>}
         {creating !== null && (
           <CreateFromNote
             initial={creating}
@@ -333,18 +342,6 @@ function NoteProperties({
           />
         )}
       </div>
-      {aiInfo && (
-        <AiTasksDialog
-          bodyLength={aiInfo.bodyLength}
-          hasTranscript={aiInfo.hasTranscript}
-          hasHomework={aiInfo.hasHomework}
-          onSuggest={onSuggestTasks}
-          onCancelSuggest={() => void window.api.cancelSuggestTasks()}
-          // まとめて作るときは、作ったチケットを開かずにノートに留まる
-          onCreate={(title, request) => onCreateTicket(title, request, false)}
-          onClose={() => setAiInfo(null)}
-        />
-      )}
     </div>
   )
 }

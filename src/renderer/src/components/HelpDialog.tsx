@@ -1,5 +1,5 @@
 // ヘルプ（上の帯の「？」から開く）。画面ごとのタブに、どこを押すと何ができるかと、手元の AI に頼める文の例を出す
-// 細かいことは README が正。AI に頼む文は「コピー」で裏方がクリップボードに入れる（文の id だけを渡す）
+// 細かいことは使い方のページ（docs/guide.md）が正。AI に頼む文は「コピー」で裏方がクリップボードに入れる（文の id だけを渡す）
 
 import { useEffect, useRef, useState } from 'react'
 import { AI_SERVICE_NAMES, DEFAULT_AI_SERVICE, type AiService } from '../../../shared/aiService'
@@ -7,9 +7,10 @@ import {
   HELP_SECTIONS,
   HELP_TOPICS,
   HELP_TOPIC_LABELS,
-  README_URL,
+  guideUrl,
   START_LAUNCH,
   START_PROMPTS,
+  START_SKILLS,
   type HelpPrompt,
   type HelpTopic
 } from '../../../shared/help'
@@ -56,7 +57,10 @@ export function PromptList({ prompts }: { prompts: HelpPrompt[] }): React.JSX.El
       <ul className="help-prompts">
         {prompts.map((p) => (
           <li key={p.id}>
-            <span className="help-prompt-text">{p.text}</span>
+            <span className="help-prompt-text">
+              {p.text}
+              {p.skill && <small className="help-skill">/{p.skill} でも呼べます</small>}
+            </span>
             <button type="button" className="ghost" onClick={() => void copy(p.id)}>
               {copied === p.id ? 'コピーしました' : 'コピー'}
             </button>
@@ -93,7 +97,7 @@ function StartGuide({ tasksDir }: { tasksDir: string | null }): React.JSX.Elemen
     <>
       <p className="dialog-note">
         mokkan のチケットとノートは、ただの md ファイルです。手元の AI（{AI_SERVICE_NAMES[service]}
-        など）にファイルを読み書きしてもらうと、タスクを作ったり、議事メモを整理したりできます。
+        など）にファイルを読み書きしてもらうと、ノートからタスクを起こしたり、ノートを整理したりできます。
       </p>
       <h3>1. AI に指定するフォルダ</h3>
       <p className="help-text">
@@ -114,11 +118,25 @@ function StartGuide({ tasksDir }: { tasksDir: string | null }): React.JSX.Elemen
         ))}
       </ul>
       <p className="dialog-note">
-        使う AI は「設定」で選べます（今は {AI_SERVICE_NAMES[service]}）。
+        使っている AI は「設定」で選べます（今は {AI_SERVICE_NAMES[service]}）。
       </p>
       <h3>2. 最初に頼む文（例）</h3>
       <PromptList prompts={START_PROMPTS} />
       <p className="dialog-note">（ ）の中は、自分の内容に置き換えます。</p>
+      <h3>3. 用意してある作業の手順（skill）</h3>
+      <p className="help-text">
+        mokkan のデータのフォルダの .claude/skills/
+        に、よくある作業の手順を置いています。ふつうの文で頼めば AI が合う手順を使い、/名前
+        で呼ぶこともできます。どれも、案を出して確かめてから書き換えます。
+      </p>
+      <ul className="help-skills">
+        {START_SKILLS.map((s) => (
+          <li key={s.name}>
+            <code>/{s.name}</code>
+            <span>{s.text}</span>
+          </li>
+        ))}
+      </ul>
       <p className="dialog-note">
         この案内は、右上の「？」の「はじめに」からいつでも開けます。画面ごとのタブには、その画面でできることと頼める文の例があります。
       </p>
@@ -187,8 +205,8 @@ function HelpDialog({ initial, tasksDir, onClose }: Props): React.JSX.Element {
           )}
         </div>
         <div className="dialog-actions">
-          <a href={README_URL} target="_blank" rel="noreferrer" className="help-readme">
-            詳しい説明（README）
+          <a href={guideUrl(topic)} target="_blank" rel="noreferrer" className="help-readme">
+            この画面の詳しい使い方
           </a>
           <button type="button" className="primary" onClick={onClose}>
             閉じる
