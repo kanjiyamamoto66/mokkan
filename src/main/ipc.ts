@@ -8,9 +8,10 @@ import {
 import { asAiService, type AiService } from '../shared/aiService'
 import { isSafeNoteFolder } from '../shared/note'
 import { validDate } from '../shared/schedule'
-import { helpPromptText } from '../shared/help'
+import { helpPromptText, notePromptText } from '../shared/help'
 import { asEditorWidth, isPaneView, type PaneView, type PaneWidths } from '../shared/paneWidth'
 import { asListSort, type ListSort } from '../shared/ticket'
+import { asWorkHours, dayEditError, isValidDate, type DayEdit, type WorkHours } from '../shared/day'
 import type { TaskStore } from './taskStore'
 
 // electron に依存しない部分だけをここに置き、Node 上でテストできるようにする
@@ -129,8 +130,76 @@ export function normalizeNoteFolder(value: unknown): string {
 export function normalizeCreateNoteRequest(value: unknown): CreateNoteRequest {
   if (value === undefined || value === null) return { template: null, folder: '' }
   if (typeof value !== 'object' || Array.isArray(value)) throw new Error('指定が正しくありません')
-  const { template, folder } = value as Record<string, unknown>
-  return { template: normalizeTemplateName(template), folder: normalizeNoteFolder(folder) }
+  const { template, folder, title, date } = value as Record<string, unknown>
+  return {
+    template: normalizeTemplateName(template),
+    folder: normalizeNoteFolder(folder),
+    title: title === undefined || title === null ? null : normalizeTitle(title),
+    date: date === undefined || date === null ? null : requireDate(date)
+  }
+}
+
+/** 画面から来た日付（YYYY-MM-DD の実在する日）を確かめる */
+export function requireDate(value: unknown): string {
+  const date = requireString(value, 'date')
+  if (!isValidDate(date)) throw new Error(`日付が正しくありません：${date}`)
+  return date
+}
+
+/** 時間割の書き換えの長さの上限（1行の内容） */
+const MAX_DAY_CONTENT_LENGTH = 500
+
+/** 画面から来た時間割の書き換えを確かめる */
+export function normalizeDayEdit(value: unknown): DayEdit {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('時間割の書き換えが正しくありません')
+  }
+  const v = value as Record<string, unknown>
+  const int = (x: unknown, name: string): number => {
+    if (typeof x !== 'number' || !Number.isInteger(x)) throw new Error(`${name} が正しくありません`)
+    return x
+  }
+  const content = (): string => {
+    const text = requireString(v.content, 'content')
+      .replace(/[\r\n]+/g, ' ')
+      .trim()
+    if (text.length > MAX_DAY_CONTENT_LENGTH) {
+      throw new Error(`内容は${MAX_DAY_CONTENT_LENGTH}文字までにしてください`)
+    }
+    return text
+  }
+  let edit: DayEdit
+  switch (v.kind) {
+    case 'add':
+      edit = {
+        kind: 'add',
+        start: int(v.start, 'start'),
+        end: int(v.end, 'end'),
+        content: content()
+      }
+      break
+    case 'update':
+      edit = {
+        kind: 'update',
+        line: int(v.line, 'line'),
+        raw: requireString(v.raw, 'raw'),
+        start: int(v.start, 'start'),
+        end: int(v.end, 'end'),
+        content: content()
+      }
+      break
+    case 'remove':
+      edit = { kind: 'remove', line: int(v.line, 'line'), raw: requireString(v.raw, 'raw') }
+      break
+    case 'touch':
+      edit = { kind: 'touch' }
+      break
+    default:
+      throw new Error('時間割の書き換えの種類が正しくありません')
+  }
+  const invalid = dayEditError(edit)
+  if (invalid) throw new Error(invalid)
+  return edit
 }
 
 /** タグの名前の長さの上限 */
@@ -344,15 +413,24 @@ export function onboardingHandlers(deps: {
 }
 
 /**
- * ヘルプの IPC のハンドラー。画面からは文の id だけを受け取り、文は help.ts の表から引いて書く
- * （画面から任意の文字を受け取ってクリップボードに書かせない）
+ * ヘルプと「AI に頼む文をコピー」の IPC のハンドラー。画面からは文の id かノートのキーだけを受け取り、
+ * 文は help.ts から作って書く（画面から任意の文字を受け取ってクリップボードに書かせない）
+ * @param hasNote 今読み込んでいるノートのキーか
  */
-export function helpHandlers(writeClipboard: (text: string) => void): Record<string, IpcHandler> {
+export function helpHandlers(
+  writeClipboard: (text: string) => void,
+  hasNote: (noteKey: string) => boolean
+): Record<string, IpcHandler> {
   return {
     [IPC.copyHelpPrompt]: (id) => {
       const text = helpPromptText(requireString(id, 'id'))
       if (text === null) throw new Error('ヘルプの文が見つかりません')
       writeClipboard(text)
+    },
+    [IPC.copyNotePrompt]: (noteFileName) => {
+      const key = requireString(noteFileName, 'noteFileName')
+      if (!hasNote(key)) throw new Error('ノートが見つかりません')
+      writeClipboard(notePromptText(key))
     }
   }
 }
@@ -368,6 +446,9 @@ interface SettingsStore {
   saveTemplateChoice: (kind: TemplateKind, name: string | null) => void
   getAiService: () => AiService
   saveAiService: (service: AiService) => void
+  /** 作業する時間は個人設定ではなく、tasks/days/routine.md に置く（AI も読めるように） */
+  getWorkHours: () => Promise<WorkHours>
+  saveWorkHours: (hours: WorkHours) => Promise<void>
 }
 
 /** 個人設定の IPC のハンドラー。画面から来た値は確かめてから保存する */
@@ -407,11 +488,20 @@ export function settingsHandlers(settings: SettingsStore): Record<string, IpcHan
 
     [IPC.getAiService]: () => settings.getAiService(),
 
-    // 知っている AI の名前だけを受け付ける（呼ぶコマンドは裏方が名前から決める）
+    // 知っている AI の名前だけを受け付ける（案内の書き分けに使うだけで、アプリから AI は呼ばない）
     [IPC.setAiService]: (service) => {
       const valid = asAiService(service)
       if (!valid) throw new Error('AI の名前が正しくありません')
       settings.saveAiService(valid)
+    },
+
+    [IPC.getWorkHours]: () => settings.getWorkHours(),
+
+    // 0時からの分で、始まりが終わりより前のものだけを受け付ける
+    [IPC.setWorkHours]: (hours) => {
+      const valid = asWorkHours(hours)
+      if (!valid) throw new Error('作業する時間が正しくありません')
+      return settings.saveWorkHours(valid)
     }
   }
 }

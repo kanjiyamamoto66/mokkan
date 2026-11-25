@@ -1,6 +1,7 @@
 import type { Ticket } from '../../../shared/ticket'
 import { effectivePriority } from '../../../shared/ticket'
 import type { TagColors } from '../../../shared/tagColor'
+import { durationLabel } from '../../../shared/duration'
 import { PRIORITY_LABELS, STATUS_LABELS } from '../labels'
 import { tagStyle } from '../tagStyle'
 
@@ -64,6 +65,11 @@ function TicketList({
               <span className="dates">
                 {t.due && <span className={overdue ? 'due overdue' : 'due'}>期限 {t.due}</span>}
                 {t.start && <span className="start">着手 {t.start}</span>}
+                {t.estimate !== null && (
+                  <span className="estimate" title="所要時間">
+                    {durationLabel(t.estimate)}
+                  </span>
+                )}
               </span>
             </button>
           </li>

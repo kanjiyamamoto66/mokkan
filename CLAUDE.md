@@ -8,6 +8,7 @@
 
 - 仕様の全体は `docs/spec.md` にあります。設計判断の根拠もそこに書いてあるので、迷ったら先に読んでください。
 - `templates/RULES.md`・`templates/TEMPLATE.md`・`templates/NOTE_TEMPLATE.md` は、データ側（`tasks/` フォルダ）に置くファイルの原本です。`templates/AI_GUIDE.md` は、`tasks/` に `CLAUDE.md` と `AGENTS.md` の2つの名前で置く、AI向けの案内の原本です。`templates/samples/notes/` は、`tasks/templates/notes/` に日本語の名前で置くノートのテンプレートの見本です（名前の対応は `taskStore.ts` の `SAMPLE_TEMPLATES`）。
+- `templates/skills/<名前>/SKILL.md` は、`tasks/.claude/skills/<名前>/SKILL.md` に置く標準の skill（AI の作業の手順）の原本です。作業の手順の本文は skill だけに書き、`templates/RULES.md` には「作業の手順（skill）」の一覧だけを置きます。skill を書き換えるときは、公式の [Agent Skills のベストプラクティス](https://platform.claude.com/docs/ja/agents-and-tools/agent-skills/best-practices) に沿い（名前は `mokkan-` と動名詞・description に何をするかといつ使うか・500行未満・進み具合のチェックリストと書いた後に見直す手順。description は `"…"` で囲む。「確かめる」は人に確かめることだけに使う）、`tests/skill-evals/` の評価を `npm run skill-evals` で Haiku・Sonnet・Opus に試します（見本は `make-sandbox.mjs` で作り直す。`--only read|write` で読む場面・書く場面に絞れる。利用の上限に注意）。
 
 ## 進め方
 
@@ -39,22 +40,24 @@
 | `src/shared/note.ts` | ノート（`notes/` とその下のフォルダ）の読み取り（種類・見直した日・フォルダ）・キーとフォルダ（`splitNoteKey`・`noteKey`・`isSafeNoteFolder`・`folderNameError`・`projectTag`）・一覧の絞り込みと並び順・ノートから起こしたチケット・「宿題」への書き戻し（`attachHomework`・`appendHomework`・`hasHomeworkHeading`）と項目の読み取り（`parseHomeworkItem`） |
 | `src/shared/archive.ts` | アーカイブ（`archive/` に移す）・戻す・削除の対象（子孫を含む）を決める |
 | `src/shared/tagColor.ts` | タグの色（`tasks/TAGS.md` の読み取りと、変えたタグの行だけの書き換え・名前から決める色相） |
-| `src/shared/help.ts` | ヘルプ（「？」）の中身。「はじめに」（AI に指定するフォルダ・起動のしかた `START_LAUNCH`・最初に頼む文 `START_PROMPTS`。初めての起動で設定の後に開く）と、画面ごとの操作の説明と AI に頼む文の例（`helpPromptText`。コピーは id で裏方が引く `helpHandlers`。フォルダの場所は `copyTasksDir`） |
+| `src/shared/help.ts` | ヘルプ（「？」）の中身。「はじめに」（AI に指定するフォルダ・起動のしかた `START_LAUNCH`・最初に頼む文 `START_PROMPTS`・標準の skill の一覧 `START_SKILLS`。初めての起動で設定の後に開く）と、画面ごとの操作の説明と AI に頼む文の例（`helpPromptText`。文で使う skill の名前も添える。コピーは id で裏方が引く `helpHandlers`。フォルダの場所は `copyTasksDir`）・ノートの「AI に頼む文をコピー」の文（`notePromptText`） |
+| `src/shared/ruleFiles.ts` | 標準の skill の名前（`SKILL_NAMES`）と置き場所（`skillPath`）・RULES.md と skill を一緒に更新するまとまり（`isRuleBundle`・`withRuleBundle`）・設定の画面に出す名前（`ruleFileLabel`） |
 | `src/shared/tagKey.ts` | キーと値のタグ（`顧客/A社`）の分け方（`splitTag`）・キーごとのまとめ（`groupTags`）・絞り込みの判定（`matchesTags`：同じキーは「または」、違うキーは「かつ」） |
-| `src/shared/repeat.ts` | 繰り返し（`repeat`）の書式の読み取り、次回の日付の計算、次回分のチケットの中身の組み立て |
+| `src/shared/repeat.ts` | 繰り返し（`repeat`）の書式の読み取り、次回の日付の計算、規則がその日に当たるか（`occursOn`。時間割のいつもの予定）、次回分のチケットの中身の組み立て |
+| `src/shared/day.ts` | 時間割（`days/YYYY-MM-DD.md`）の予定の行の読み取り（`parseDay`。崩れた行は `broken`）と書き換え（`applyDayEdit`。足す・書き換える・消す。ほかの行は変えない）・いつもの予定（`days/routine.md`。`parseRoutine`・`routineFor`）・新しい日のファイル（`newDayText`）・重なった予定の列（`layoutColumns`）・その日の候補（`dayCandidates`）・作業する時間（`WorkHours`・`busyMinutes`。routine.md の frontmatter の `work` の読み書きは `routineWorkHours`・`setRoutineWorkHours`。AI も読めるよう個人設定には置かない） |
+| `src/shared/duration.ts` | 所要時間（チケットの `estimate`。`30m`・`1h`・`1h30m`）の読み書き |
 | `src/shared/search.ts` | 全文検索の当たりの判定（語の分け方・文字起こしを除く・当たった箇所の文）。ファイルを読むのは `TaskStore.search`（探すたびに読む） |
 | `src/shared/links.ts` | 他のチケット・ノートへの md のリンク（相対パス・リンク先の ID・リンク先が指すファイル `resolveLinkPath`）と、文の中の ID（`findIds`）・リンクの候補の絞り込み・探すための文字の揃え方（`normalizeForSearch`） |
 | `src/shared/lint.ts` | ノートの点検（`lintFiles`：切れたリンク・ずれたリンク・入口がない・入口から外れた知識・見直していない知識・確かめていない記述・長すぎる知識）・被リンク（`backlinksOf`）・本文のリンクと ID の読み取り（`bodyRefs`、remark で読み、コードの中は除く）・ずれたリンクを直す（`replaceLinkDestination`）・結果の md（`lintToMarkdown`）。ファイルを読むのは `TaskStore.lint`・`backlinks`・`fixLink`（呼ばれるたびに読む） |
 | `src/shared/api.ts` | 裏方と画面の間の IPC の型とチャンネル名 |
-| `src/main/taskStore.ts` | `tasks/` の読み込み・監視（`tickets/`・`archive/`・`notes/`・`TAGS.md`）・作成（チケット・ノート・ノートから起こすチケット）・保存・空チケットの削除・繰り返しの次回分の作成・アーカイブ・ごみ箱への削除・ルールのファイル（`RULE_FILES`）の確認と更新・タグの色の書き込み（`setTagColor`）・全文検索（`search`）・起動時の見出しの付け足し（`renameUntitledFiles`） |
+| `src/main/taskStore.ts` | `tasks/` の読み込み・監視（`tickets/`・`archive/`・`notes/`・`days/`・`TAGS.md`）・時間割の読み書き（`readDay`・`updateDay`・作業する時間の `readWorkHours`・`saveWorkHours`）・チケットを完了にする（`completeTicket`）・作成（チケット・ノート・ノートから起こすチケット）・保存・空チケットの削除・繰り返しの次回分の作成・アーカイブ・ごみ箱への削除・ルールのファイル（`RULE_FILES`）の確認と更新・タグの色の書き込み（`setTagColor`）・全文検索（`search`）・起動時の見出しの付け足し（`renameUntitledFiles`） |
 | `src/main/ipc.ts` | IPC の入力の確かめ（`requireString`・`requireStringArray`・`normalizeTitle`・`normalizeTag`・`requireHue`・`normalizeFromNoteOptions`）、ハンドラー、設定への案内の判定（`decideOnboarding`・`onboardingHandlers`）、外部のブラウザで開いてよい URL か（http/https だけ）。electron に依存しないので Node 上でテストできる |
-| `src/main/aiTasks.ts` | ノートを AI（パソコンの Claude Code の `claude -p` か、Cursor CLI の `agent -p`。`runAi`）に送ってタスクの候補を出してもらう。送る文の組み立て・答えの読み取り・呼び出し（`runClaude`・`runCursor`。文は標準入力で渡し、道具は使わせない）・Cursor CLI の探し方（`cursorCommands`）・失敗の理由（`failureMessage`）。electron に依存しないので Node 上でテストできる |
-| `src/shared/aiService.ts` | 使える AI（`AI_SERVICES`）と、画面に出す名前・見つからないときの案内 |
-| `src/main/settings.ts` | `tasks/` の場所や一覧の並び順・自分の名前・最後に案内を済ませた版（`lastVersion`）・使う AI（`aiService`）・画面ごとの編集画面の幅（`paneWidths`。値の確かめは `src/shared/paneWidth.ts`）などの個人設定（userData に保存。開発中は `%APPDATA%\mokkan-dev`） |
+| `src/shared/aiService.ts` | 使っている AI の選択肢（`AI_SERVICES`）と画面に出す名前。「はじめに」の起動のしかたの書き分けだけに使う |
+| `src/main/settings.ts` | `tasks/` の場所や一覧の並び順・自分の名前・最後に案内を済ませた版（`lastVersion`）・使っている AI（`aiService`）・画面ごとの編集画面の幅（`paneWidths`。値の確かめは `src/shared/paneWidth.ts`）などの個人設定（userData に保存。開発中は `%APPDATA%\mokkan-dev`） |
 | `src/main/index.ts` | ウィンドウと IPC の登録。画面は sandbox で動かし、ページの移動（`will-navigate`。今のページの読み込み直しは通す）と権限の要求（カメラ・通知など）は断る |
 | `src/preload/index.ts` | 画面に渡す API（`window.api`） |
 | `src/renderer/src/App.tsx` | 画面の全体（上の帯のボタン〔狭いときにアイコンだけにする順と幅は `main.css` の `.header` のコンテナークエリー〕・表示の切り替え・選択中のチケットと「← 戻る」の履歴・新規作成・並び順と自分の名前の読み込み・アーカイブで移したときの切り替え・検索の結果から開く・設定への案内と名前の付け足しの案内の帯） |
-| `src/renderer/src/components/` | 一覧・絞り込み・警告・編集画面・プロパティフォーム・カレンダー・ガント・凡例（`Legend`）・タグと担当者の入力（`TagInput`）・タグの色の選択（`TagColorPicker`）・繰り返しの指定（`RepeatInput`）・本文のツールバー（`EditorToolbar`）・`[[` の候補（`LinkSuggestList`）・検索欄（`SearchBox`）・設定とルールのファイル（`SettingsDialog`）・まとめてアーカイブ（`ArchiveDialog`）・ノートの一覧（`NoteList`）・ノートのフォルダの木と種類の絞り込み（`NoteFolderTree`）・新規作成のボタンとテンプレートの選択（`NewButton`）・ノートのプロパティと「＋ ここからチケット」（`NoteProperties`）・AI でタスクを起こす窓（`AiTasksDialog`）・ノートの点検の結果（`NoteLintPanel`）・編集画面の「このノートへのリンク」（`Backlinks`）・入口のノートの「このプロジェクトのチケット」（`ProjectTickets`。対象は `projectOpenTickets`）・一覧と編集画面の境目（`PaneSplitter`）・ヘルプ（`HelpDialog`）。編集画面（`TicketEditor`）はチケットとノートの両方を開く |
+| `src/renderer/src/components/` | 一覧・絞り込み・警告・編集画面・プロパティフォーム・カレンダー・ガント・時間割（`TimetableView`。議事メモを作る窓 `MeetingNoteDialog` も）・凡例（`Legend`）・タグと担当者の入力（`TagInput`）・タグの色の選択（`TagColorPicker`）・繰り返しの指定（`RepeatInput`）・本文のツールバー（`EditorToolbar`）・`[[` の候補（`LinkSuggestList`）・検索欄（`SearchBox`）・設定とルールのファイル（`SettingsDialog`）・まとめてアーカイブ（`ArchiveDialog`）・ノートの一覧（`NoteList`）・ノートのフォルダの木と種類の絞り込み（`NoteFolderTree`）・新規作成のボタンとテンプレートの選択（`NewButton`）・ノートのプロパティと「＋ ここからチケット」「AI に頼む文をコピー」（`NoteProperties`）・ノートの点検の結果（`NoteLintPanel`）・編集画面の「このノートへのリンク」（`Backlinks`）・入口のノートの「このプロジェクトのチケット」（`ProjectTickets`。対象は `projectOpenTickets`）・一覧と編集画面の境目（`PaneSplitter`）・ヘルプ（`HelpDialog`）。編集画面（`TicketEditor`）はチケットとノートの両方を開く |
 | `src/renderer/src/tagStyle.ts` | タグの色を画面に付ける（色相を `--tag-h` で渡す）・タグの色を保存する |
 | `src/renderer/src/editor/markdown.ts` | Milkdown の組み立てと書き出し設定（`STRINGIFY_OPTIONS`）。往復テストは同じ場所の `markdown.test.ts`（jsdom） |
 | `src/renderer/src/editor/idLinks.ts` | 本文の中の ID と、他のチケット・ノートへの md のリンク（リンク先の ID で探す）に印とタイトルを付け、Ctrl+クリックで開く ProseMirror のプラグイン（画面の飾りだけで、本文は変えない）。テストは `idLinks.test.ts`（jsdom） |
@@ -65,6 +68,9 @@
 | `tests/` | テンプレートの文字コード・改行のテストと、往復テスト用のサンプル（`tests/fixtures/canonical.md`） |
 | `scripts/make-sandbox.mjs` | 動作確認用のサンプルデータを作る（`npm run sandbox`） |
 | `scripts/make-icons.mjs` | アイコンの原本 `build/icon.svg` から ico・png を作る（`npm run icons`） |
+| `scripts/run-skill-evals.mjs` | 標準の skill の評価（`tests/skill-evals/`）を、作り直した見本で `claude -p` を呼んで動かし、期待する skill が呼ばれたかを採点して、ほかは別の Claude に判定させる（`npm run skill-evals`）。`followUp` のある場面は同じ会話の2回目で書かせ、書いたファイルも判定する |
+| `scripts/take-screenshots.mjs` | README と `docs/guide.md` のスクリーンショット（`docs/images/`）を、見本のデータ（`sandbox/screenshots`）で起動した開発版から CDP で撮る（`npm run screenshots`。手順はファイルの先頭）。見本のフォルダでなければ止め、フォルダの場所と自分の名前は見本のものに置き換えてから撮る |
+| `docs/guide.md` | 使い方（画面ごとにできること）。見出しはヘルプのタブの名前と同じにする（ヘルプからその節を開く。`help.test.ts` で確かめる）。画面を変えたら、ここも直す |
 | `electron-builder.yml` | インストーラーの設定（下の「インストーラーとリリース」を参照） |
 
 ## 実装の注意
@@ -87,7 +93,7 @@
 ### アーカイブと削除
 
 - `archive/` のチケットは、`Ticket.fileName` を `archive/ファイル名` にして区別する（画面と裏方の間のキー）。ファイル名から読む ID（`fileId`）はファイル名だけから読む。
-- 監視は `tasks/` から、`tickets/`・`archive/` の直下の md と、`notes/` の下の md（フォルダの中も。`.` で始まるフォルダは除く）、`tasks/` 直下の `TAGS.md` とその競合コピーだけ。ほかのフォルダは chokidar の `ignored` で入らない。`notes/` の下のフォルダは `MAX_NOTE_FOLDER_DEPTH`（9段）まで読み、監視の `depth` もそれに合わせる（`depth` を決めない無制限の監視では、Windows で変更の通知が数秒遅れ、テストが落ちることがあった）。`archive/` は最初のアーカイブで、`notes/` は「準備する」か最初のノートで作られる。
+- 監視は `tasks/` から、`tickets/`・`archive/` の直下の md と、`notes/` の下の md（フォルダの中も。`.` で始まるフォルダは除く）、`days/` の直下の日のファイル（`YYYY-MM-DD.md`）と `routine.md`、`tasks/` 直下の `TAGS.md` とその競合コピーだけ。`days/` のファイルは中身を持たず、更新日時だけを `AppState.days` に入れる（時間割の画面が `readDay` で読み、更新日時が変わったら読み直す）。ほかのフォルダは chokidar の `ignored` で入らない。`notes/` の下のフォルダは `MAX_NOTE_FOLDER_DEPTH`（9段）まで読み、監視の `depth` もそれに合わせる（`depth` を決めない無制限の監視では、Windows で変更の通知が数秒遅れ、テストが落ちることがあった）。`archive/` は最初のアーカイブで、`notes/` は「準備する」か最初のノートで作られる。
 
 ### ノート
 
@@ -99,6 +105,14 @@
 - ノートの frontmatter は `NOTE_FIELD_ORDER` の並び順で書き換える（`setFields` の第3引数）。
 - 「＋ここからチケット」（`createTicketFromNote`）は、画面が最後に読んだノートの中身を受け取り、ファイルがそれと同じときだけチケットを作って「宿題」に書き戻す。「宿題」の見出しがないノート（`hasHomeworkHeading`）には書き戻さない。チケットのタグには、ノートのタグとプロジェクトのタグ（`projectTag`：`notes/` の直下のフォルダ名。`共通` は除く）を付ける。書き戻しは、選んだ「宿題」の項目の行末に付ける `attachHomework`（項目の文で探す）か、見つからなければ最後に行を足す `appendHomework` で、付けたもののほかは変えない。書き戻すのは `→ [ID](../tickets/ファイル名)` の md のリンクで、チケットのファイル名は初めから `ID_タイトル.md` にする（起動時の名前の付け足しでリンクが切れないように）。
 - 移すときは rename だけ。移す先に同じ名前のファイルがあれば、どれも移さない。削除は `shell.trashItem` でごみ箱に移し、完全には消さない（TaskStore には `trash` として渡す。テストでは偽物を渡す）。
+
+### 時間割
+
+- 画面は `TimetableView`（部品を足さず自前で描く。1時間 48px）。予定の書き換えは、裏方に「何行目の、画面が読んだときの行（`raw`）を、どう変えるか」（`DayEdit`）と、画面が読んだファイルの中身（`base`）を渡す（`updateDay`）。裏方は今の中身が `base` と同じで、その行が `raw` のままのときだけ書く。ファイルがなければ作り、今日か先の日なら `routine.md` の当たる行を写す。
+- 画面は書き換えを待ち行列で1件ずつ送り、`base` には最後に読んだ中身（`textRef`。どの日の中身かと組で持つ）を使う（続けて足すと2件目が「ほかで書き換えられた」になった）。書き込みの途中で日を移ったら、前の日の結果は画面に出さず、残りの書き換えはその日を読み直して `base` にする。裏方は行の番号がずれても、`raw` と同じ行が1つだけなら探し直す（`findLine`）。いつもの予定をその日だけ外すときは、`touch`（中身を変えずにファイルを作る）でいつもの予定を写してから消す。
+- ドラッグの書き換えは `setState` に渡す関数の中で呼ばない（React の開発中の StrictMode はそれを2回呼ぶので、2回書きに行き、2回目が「ほかで書き換えられた」になった）。動かしている途中の値は ref にも持つ。
+- 予定のリンク先は、リンク先のパスで探してから ID で探す（同じ ID の競合コピーがあるときに、リンクしたほうを完了にするため）。
+- チケットを完了にするのは裏方の `completeTicket`（`status` と `done` の行だけを変え、`createNextRepeat` も呼ぶ）。MTG の議事メモは `createNote` に `title`・`date` を渡して作る。
 
 ### カレンダーとガント
 
@@ -135,9 +149,8 @@
 - 全文検索は、探すたびに裏方がファイルを読む（`TaskStore.search`）。本文を持ち続けない。
 - ノートの点検と被リンクも、呼ばれるたびに裏方がファイルを読む（`TaskStore.lint`・`backlinks`）。結果はファイルに書かない。アプリが書き換えるのは、人が「直す」を押したずれたリンクだけ（`fixLink`。`replaceLinkDestination` でそのリンク先の範囲だけを置き換え、`saveTicket` で読んだ中身と同じときだけ書く）。
 - 点検の「md でコピー」は、裏方で点検し直して md を作り、electron の `clipboard` に書く（`copyLintReport`）。画面の `navigator.clipboard` は、権限をすべて断っているので使えない。画面から任意の文字を受け取る IPC は作らない。
-- AI でタスクを起こすときは、パソコンの Claude Code を `claude -p --tools "" --no-session-persistence --json-schema …` で呼ぶ（`aiTasks.ts`）。文は標準入力で渡し、シェルは通さない。作業フォルダは、呼ぶたびに `%TEMP%` の下に作る空のフォルダにする（Windows はコマンドを作業フォルダから先に探すので、`%TEMP%` そのものにしない）。チケットは作らせず、人が選んだものを `createTicketFromNote` で作る。
-- 設定で Cursor を選んだときは、Cursor CLI を `agent -p --output-format json --mode ask --trust --workspace <空のフォルダ>` で呼ぶ（`--force` は付けない）。道具を断る引数がないので、作業フォルダに全部を断る `.cursor/cli.json`（`CURSOR_DENY_ALL`）を置く。答えの形の引数もないので、JSON Schema を文に書く（`buildPrompt` の `schemaInPrompt`）。Windows では `agent.cmd` をシェルなしで呼べないので、`%LOCALAPPDATA%\cursor-agent\versions\<いちばん新しい版>\node.exe` に `index.js` を渡す（`cursorCommands`）。使う AI は画面から受け取らず、裏方が設定から読む。
-- Cursor CLI は署名のない部品（`*.node`）を使うので、スマート アプリ コントロールが有効な PC では動かない。標準入力で文を渡せるか、ask モードと `cli.json` で道具が止まるかは、まだ実物で確かめていない（偽物の spawn でのテストだけ）。
+- アプリから AI を呼ぶことはしない（パソコンの `claude -p`・`agent -p` などを呼ぶと、コマンドの探し方やログインが利用者に分かりにくく、デスクトップアプリだけを入れた PC では使えないため）。AI に頼む作業は、利用者が AI のアプリを `tasks/` で使って行う。アプリはそのための文をコピーするだけ（ノートの下の「AI に頼む文をコピー」は `copyNotePrompt`。画面からはノートのキーだけを受け取り、読み込んでいるノートのときだけ `notePromptText` で文を作る）。
+- 設定の「使っている AI」（`aiService`）は、「はじめに」の起動のしかた（`START_LAUNCH`）を書き分けるためだけに使う。
 
 ## コマンド
 
@@ -150,6 +163,7 @@
 | `npm run format` | Prettier。mdは「編集していない部分は変えない」ため `.prettierignore` で対象外にしている |
 | `npm run build:win` | Windows 用のインストーラー（NSIS のワンクリック形式、ユーザーごとに入れる）を `dist/` に作る |
 | `npm run icons` | `build/icon.svg` から `build/icon.ico`・`build/icon.png`・`resources/icon.png` を作る（Electron で描く。追加のパッケージなし） |
+| `npm run skill-evals` | 標準の skill の評価を Haiku・Sonnet・Opus で動かす（`--models`・`--skills`・`--concurrency` で絞れる。パソコンの Claude Code を呼ぶ。CI では動かさない） |
 
 - 別のデータフォルダを使うときは、環境変数 `MOKKAN_TASKS_DIR` で指定するか、画面の「フォルダを変える」で選ぶ（環境変数が最優先）。
 
@@ -184,7 +198,7 @@
 | ガントチャート | SVAR React Gantt（MIT版。有料のPRO機能は使わない） |
 | アイコン | Lucide（`lucide-react`、ISC）。上の帯のボタンに使う。画面側だけなので devDependencies |
 | ファイル監視 | chokidar 6（Node 22.22 以上が必要） |
-| AI でタスクを起こす | Claude Code（`claude -p`）か Cursor CLI（`agent -p`）。設定で選ぶ。パソコンに入っているものを呼ぶ。同梱しない |
+| AI との連携 | なし。利用者の AI のアプリ（Claude Code・Cursor など）が `tasks/` を直接読み書きする。アプリは頼む文をコピーするだけ |
 | Node.js | 24 LTS（`.node-version` に記載）。Electron が同梱する Node のメジャー版に合わせる（`@types/node` も同じ） |
 | パッケージマネージャー | npm |
 | テストランナー | Vitest（画面側の往復テストは jsdom） |

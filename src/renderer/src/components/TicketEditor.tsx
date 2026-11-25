@@ -10,7 +10,7 @@ import type { Editor } from '@milkdown/kit/core'
 import { editorViewCtx } from '@milkdown/kit/core'
 import type { Node as ProseNode } from '@milkdown/kit/prose/model'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { AiSuggestResult, FromNoteRequest, RepeatResult } from '../../../shared/api'
+import type { FromNoteRequest, RepeatResult } from '../../../shared/api'
 import { archivePlan, deleteTargets } from '../../../shared/archive'
 import { canPreserveBlocks, mergeBody } from '../../../shared/body'
 import {
@@ -49,7 +49,7 @@ import Backlinks from './Backlinks'
 import ProjectTickets from './ProjectTickets'
 import EditorToolbar from './EditorToolbar'
 import LinkSuggestList from './LinkSuggestList'
-import NoteProperties, { type NoteBodyInfo } from './NoteProperties'
+import NoteProperties from './NoteProperties'
 import PropertyForm from './PropertyForm'
 
 /** 入力が止まってから保存するまでの時間 */
@@ -542,38 +542,8 @@ function TicketEditor({
     })
   }
 
-  /**
-   * ノートを AI に送り、タスクの候補を出してもらう。残っている編集を保存してから、保存した中身を送る
-   */
-  const suggestTasks = async (includeTranscript: boolean): Promise<AiSuggestResult> => {
-    await save()
-    const base = baseRef.current
-    if (conflictRef.current || base === null) {
-      return { status: 'error', message: '保存できていないので、送りませんでした' }
-    }
-    try {
-      return await window.api.suggestTasksFromNote(fileName, base, { includeTranscript })
-    } catch (error) {
-      return {
-        status: 'error',
-        message: (error as Error).message.replace(
-          /^Error invoking remote method '[^']+': (Error: )?/,
-          ''
-        )
-      }
-    }
-  }
-
-  /** AI に送る本文の大きさと、「文字起こし」の節があるか（送る前の確認に出す） */
-  const noteBodyInfo = (): NoteBodyInfo => {
-    const text = baseRef.current ?? ''
-    const body = bodyOf(text)
-    return {
-      bodyLength: body.length,
-      hasTranscript: /^#{1,6}[ \t]+文字起こし[ \t]*$/m.test(body),
-      hasHomework: hasHomeworkHeading(text)
-    }
-  }
+  /** 保存したノートに「宿題」の見出しがあるか（「＋ ここからチケット」で書き戻すかを出す） */
+  const noteHasHomework = (): boolean => hasHomeworkHeading(baseRef.current ?? '')
 
   /** ノートを notes/ の中の別のフォルダに移す。残っている編集を保存してから移す */
   const moveNote = async (folder: string): Promise<void> => {
@@ -853,8 +823,7 @@ function TicketEditor({
           onCreateTicket={createTicketFromNote}
           selectedText={selectedText}
           homeworkItem={homeworkItemAtCursor}
-          onSuggestTasks={suggestTasks}
-          noteBodyInfo={noteBodyInfo}
+          hasHomework={noteHasHomework}
           folders={noteFolders}
           onMove={(folder) => void moveNote(folder)}
         />

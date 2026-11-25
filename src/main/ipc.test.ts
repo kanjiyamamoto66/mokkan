@@ -5,12 +5,14 @@ import {
   helpHandlers,
   isExternalUrl,
   normalizeCreateNoteRequest,
+  normalizeDayEdit,
   normalizeFromNoteOptions,
   normalizeNoteFolder,
   normalizeTemplateName,
   normalizeTitle,
   normalizeUserName,
   onboardingHandlers,
+  requireDate,
   requireString,
   requireStringArray,
   settingsHandlers,
@@ -281,11 +283,25 @@ describe('ticketHandlers', () => {
 describe('helpHandlers', () => {
   it('ヘルプの表にある文だけをクリップボードに書く', () => {
     const write = vi.fn()
-    const handlers = helpHandlers(write)
+    const handlers = helpHandlers(write, () => false)
     handlers[IPC.copyHelpPrompt]('calendar-busy-days')
     expect(write).toHaveBeenCalledWith(expect.stringContaining('期限が集中'))
     expect(() => handlers[IPC.copyHelpPrompt]('任意の文')).toThrow('見つかりません')
     expect(() => handlers[IPC.copyHelpPrompt](1)).toThrow()
+    expect(write).toHaveBeenCalledTimes(1)
+  })
+
+  it('AI に頼む文は、読み込んでいるノートのキーからだけ作る', () => {
+    const write = vi.fn()
+    const notes = new Set(['notes/案件A/20261124-1000-abcd_定例.md'])
+    const handlers = helpHandlers(write, (key) => notes.has(key))
+    handlers[IPC.copyNotePrompt]('notes/案件A/20261124-1000-abcd_定例.md')
+    expect(write).toHaveBeenCalledWith(
+      'notes/案件A/20261124-1000-abcd_定例.md から、タスクの候補を出して（作るのは確かめてから）'
+    )
+    expect(() => handlers[IPC.copyNotePrompt]('notes/ない.md')).toThrow('ノートが見つかりません')
+    expect(() => handlers[IPC.copyNotePrompt]('任意の文')).toThrow('ノートが見つかりません')
+    expect(() => handlers[IPC.copyNotePrompt](null)).toThrow()
     expect(write).toHaveBeenCalledTimes(1)
   })
 })
@@ -293,7 +309,9 @@ describe('helpHandlers', () => {
 /** 編集画面の幅を使わないテストで渡す、何もしない設定 */
 const noPaneWidths = {
   getPaneWidths: () => ({}),
-  savePaneWidth: vi.fn()
+  savePaneWidth: vi.fn(),
+  getWorkHours: async () => ({ start: 540, end: 1080 }),
+  saveWorkHours: vi.fn(async () => undefined)
 }
 
 /** テンプレートの選択を使わないテストで渡す、何もしない設定 */
@@ -386,7 +404,9 @@ describe('テンプレートとフォルダの指定', () => {
     expect(normalizeCreateNoteRequest(undefined)).toEqual({ template: null, folder: '' })
     expect(normalizeCreateNoteRequest({ template: '手順', folder: '共通' })).toEqual({
       template: '手順',
-      folder: '共通'
+      folder: '共通',
+      title: null,
+      date: null
     })
     expect(() => normalizeCreateNoteRequest('手順')).toThrow()
   })
@@ -430,11 +450,80 @@ describe('使う AI', () => {
       saveAiService
     })
     expect(handlers[IPC.getAiService]()).toBe('cursor')
-    handlers[IPC.setAiService]('cursor')
-    expect(saveAiService).toHaveBeenCalledWith('cursor')
+    handlers[IPC.setAiService]('claude-desktop')
+    expect(saveAiService).toHaveBeenCalledWith('claude-desktop')
     expect(() => handlers[IPC.setAiService]('codex')).toThrow('AI の名前が正しくありません')
     expect(() => handlers[IPC.setAiService]('C:\\agent.exe')).toThrow('AI の名前が正しくありません')
     expect(saveAiService).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('作業する時間', () => {
+  it('始まりが終わりより前の、0時からの分だけを保存する', async () => {
+    const saveWorkHours = vi.fn(async () => undefined)
+    const handlers = settingsHandlers({
+      getListSort: () => null,
+      saveListSort: vi.fn(),
+      getUserName: () => '',
+      saveUserName: vi.fn(),
+      ...noTemplateChoice,
+      saveWorkHours
+    })
+    expect(await handlers[IPC.getWorkHours]()).toEqual({ start: 540, end: 1080 })
+    await handlers[IPC.setWorkHours]({ start: 600, end: 1140 })
+    expect(saveWorkHours).toHaveBeenCalledWith({ start: 600, end: 1140 })
+    for (const bad of [
+      { start: 600, end: 600 },
+      { start: -1, end: 60 },
+      { start: 0, end: 1441 },
+      '9:00',
+      null
+    ]) {
+      expect(() => handlers[IPC.setWorkHours](bad)).toThrow('作業する時間が正しくありません')
+    }
+    expect(saveWorkHours).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('時間割の書き換えの確かめ', () => {
+  it('知っている種類で、時刻と内容が正しいものだけを受け付ける', () => {
+    expect(normalizeDayEdit({ kind: 'add', start: 600, end: 660, content: ' 定例\nMTG ' })).toEqual(
+      {
+        kind: 'add',
+        start: 600,
+        end: 660,
+        content: '定例 MTG'
+      }
+    )
+    expect(normalizeDayEdit({ kind: 'remove', line: 4, raw: '- 10:00-11:00 a' })).toEqual({
+      kind: 'remove',
+      line: 4,
+      raw: '- 10:00-11:00 a'
+    })
+    expect(() => normalizeDayEdit({ kind: 'add', start: 660, end: 600, content: 'a' })).toThrow()
+    expect(() => normalizeDayEdit({ kind: 'add', start: '600', end: 660, content: 'a' })).toThrow()
+    expect(() => normalizeDayEdit({ kind: 'add', start: 600, end: 660, content: '' })).toThrow()
+    expect(() => normalizeDayEdit({ kind: 'move', line: 1 })).toThrow('種類')
+    expect(() => normalizeDayEdit(null)).toThrow()
+  })
+
+  it('日付は実在する YYYY-MM-DD だけを受け付ける', () => {
+    expect(requireDate('2026-11-24')).toBe('2026-11-24')
+    expect(() => requireDate('2026-02-30')).toThrow('日付が正しくありません')
+    expect(() => requireDate('../x')).toThrow('日付が正しくありません')
+  })
+
+  it('ノートを作る指定の見出しと日付も確かめる', () => {
+    expect(
+      normalizeCreateNoteRequest({ folder: '', title: ' 定例MTG ', date: '2026-11-24' })
+    ).toEqual({
+      template: null,
+      folder: '',
+      title: '定例MTG',
+      date: '2026-11-24'
+    })
+    expect(() => normalizeCreateNoteRequest({ title: 'a\nb' })).toThrow()
+    expect(() => normalizeCreateNoteRequest({ date: '2026-13-01' })).toThrow()
   })
 })
 

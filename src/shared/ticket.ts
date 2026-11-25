@@ -2,6 +2,7 @@
 // 裏方（main）と画面（renderer）の両方から使う
 
 import { parse } from 'yaml'
+import { parseDuration } from './duration'
 import { matchesTags } from './tagKey'
 
 export type Status = 'todo' | 'doing' | 'waiting' | 'done'
@@ -38,6 +39,8 @@ export interface Ticket {
   author: string | null
   created: string | null
   done: string | null
+  /** 所要時間（分）。ファイルでは `30m`・`1h`・`1h30m`。空・読めなければ null */
+  estimate: number | null
   /** ファイルの更新日時（ミリ秒）。裏方がファイルから読んだときだけ入る。同期サービスでも変わることがある */
   modified:
     | number
@@ -215,6 +218,7 @@ export function parseTicket(fileName: string, text: string): Ticket {
     author: null,
     created: null,
     done: null,
+    estimate: null,
     modified: null,
     parseError: null
   }
@@ -254,6 +258,7 @@ export function parseTicket(fileName: string, text: string): Ticket {
   ticket.author = asString(fm.author)
   ticket.created = asString(fm.created)
   ticket.done = asString(fm.done)
+  ticket.estimate = parseDuration(asString(fm.estimate))
   return ticket
 }
 

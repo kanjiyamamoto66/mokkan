@@ -3,6 +3,7 @@ import {
   CalendarDays,
   ChartGantt,
   CircleHelp,
+  Clock,
   FolderInput,
   FolderOpen,
   List,
@@ -28,6 +29,7 @@ import { tagKeys } from '../../shared/tagKey'
 import CalendarView from './components/CalendarView'
 import FilterBar from './components/FilterBar'
 import GanttView from './components/GanttView'
+import TimetableView from './components/TimetableView'
 import FolderSetup from './components/FolderSetup'
 import SearchBox from './components/SearchBox'
 import SettingsDialog from './components/SettingsDialog'
@@ -50,11 +52,12 @@ type View = PaneView
 /** 「← 戻る」で覚えておく数 */
 const MAX_HISTORY = 50
 
-const VIEWS: readonly View[] = ['list', 'calendar', 'gantt', 'notes']
+const VIEWS: readonly View[] = ['list', 'calendar', 'gantt', 'timetable', 'notes']
 const VIEW_LABELS: Record<View, string> = {
   list: '一覧',
   calendar: 'カレンダー',
   gantt: 'ガント',
+  timetable: '時間割',
   notes: 'ノート'
 }
 
@@ -63,6 +66,7 @@ const VIEW_ICONS: Record<View, LucideIcon> = {
   list: List,
   calendar: CalendarDays,
   gantt: ChartGantt,
+  timetable: Clock,
   notes: NotebookText
 }
 
@@ -100,6 +104,10 @@ function App(): React.JSX.Element {
       })
       .catch((e) => console.error('[mokkan] 並び順の設定を読めませんでした', e))
   }, [])
+
+  // 時間割で見ている日（null なら今日）
+  const [timetableDate, setTimetableDate] = useState<string | null>(null)
+  const showError = useCallback((message: string) => setError(message), [])
 
   // 画面ごとの編集画面の幅（個人設定）。境目をドラッグして変えたもの
   const [paneWidths, setPaneWidths] = useState<PaneWidths>({})
@@ -604,8 +612,8 @@ function App(): React.JSX.Element {
           )}
           <main className="main">
             <WarningList warnings={warnings} onOpen={open} />
-            {/* 点検はすべてのノートを見るので、絞り込みは出さない */}
-            {!(view === 'notes' && lintOpen) && (
+            {/* 点検はすべてのノートを見るので、絞り込みは出さない。時間割はその日の予定なので出さない */}
+            {!(view === 'notes' && lintOpen) && view !== 'timetable' && (
               <FilterBar
                 filter={filter}
                 tags={tags}
@@ -690,6 +698,20 @@ function App(): React.JSX.Element {
                 tagColors={tagColors}
                 tags={tags}
                 onOpen={open}
+              />
+            )}
+            {view === 'timetable' && (
+              <TimetableView
+                date={timetableDate ?? today}
+                today={today}
+                onDateChange={(date) => setTimetableDate(date === today ? null : date)}
+                tickets={tickets}
+                notes={notes}
+                noteFolders={noteFolders}
+                days={state.days}
+                selected={selected?.fileName ?? null}
+                onOpen={open}
+                onError={showError}
               />
             )}
             {view === 'gantt' && (

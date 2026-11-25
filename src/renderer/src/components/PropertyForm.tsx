@@ -16,6 +16,7 @@ import {
 import type { TagColors } from '../../../shared/tagColor'
 import { PRIORITY_LABELS, STATUS_LABELS } from '../labels'
 import { saveTagColor } from '../tagStyle'
+import { formatDuration, parseDuration } from '../../../shared/duration'
 import RepeatInput from './RepeatInput'
 import TagInput from './TagInput'
 
@@ -63,6 +64,43 @@ export function CommitInput({
         if (e.key === 'Enter' && !e.nativeEvent.isComposing) commit()
       }}
     />
+  )
+}
+
+/**
+ * 所要時間の入力欄（`30m`・`1h`・`1h30m`。`90` のように数だけなら分とみなす）
+ * 読めない値は書かずに、その場で知らせる
+ */
+function EstimateInput({
+  value,
+  onChange
+}: {
+  value: number | null
+  onChange: (estimate: string | null) => void
+}): React.JSX.Element {
+  const [error, setError] = useState(false)
+  return (
+    <label>
+      <span>所要時間</span>
+      <CommitInput
+        value={value === null ? '' : formatDuration(value)}
+        placeholder="30m・1h30m"
+        aria-invalid={error}
+        className={error ? 'invalid' : undefined}
+        title="所要時間（見積もり）。30m・1h・1h30m のように書きます。時間割に置くときの長さになります"
+        onCommit={(v) => {
+          const text = v.trim()
+          if (text === '') {
+            setError(false)
+            onChange(null)
+            return
+          }
+          const minutes = parseDuration(/^\d+$/.test(text) ? `${text}m` : text)
+          setError(minutes === null)
+          if (minutes !== null) onChange(formatDuration(minutes))
+        }}
+      />
+    </label>
   )
 }
 
@@ -177,6 +215,7 @@ function PropertyForm({
             onChange={(e) => onChange({ due: e.target.value || null })}
           />
         </label>
+        <EstimateInput value={ticket.estimate} onChange={(estimate) => onChange({ estimate })} />
         {/* 担当者は複数人入れられる（タグと同じ入力欄。1人なら文字列、2人以上ならリストで書く） */}
         <div className="field wide">
           <span>担当者</span>

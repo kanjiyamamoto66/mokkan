@@ -64,6 +64,7 @@ function ticket(partial: Partial<Ticket> & { id: string }): Ticket {
     author: null,
     created: null,
     done: null,
+    estimate: null,
     modified: null,
     parseError: null,
     ...partial
@@ -181,6 +182,7 @@ describe('parseTicket', () => {
       assignee: [],
       created: '2026-10-18',
       done: null,
+      estimate: null,
       parseError: null
     })
   })

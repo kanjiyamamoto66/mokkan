@@ -112,7 +112,7 @@ export function saveTemplateChoice(kind: TemplateKind, name: string | null): voi
   writeSettings({ templateChoice: { ...templateChoices(), [kind]: name ?? '' } })
 }
 
-/** 「AI でタスクを起こす」で使う AI。設定していない・知らない値なら Claude Code */
+/** 使っている AI（「はじめに」の起動のしかたの書き分けに使う）。設定していない・知らない値なら Claude Code */
 export function getAiService(): AiService {
   return asAiService(readSettings().aiService) ?? DEFAULT_AI_SERVICE
 }

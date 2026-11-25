@@ -10,6 +10,7 @@ export const FIELD_ORDER = [
   'priority',
   'start',
   'due',
+  'estimate',
   'repeat',
   'tags',
   'parent',

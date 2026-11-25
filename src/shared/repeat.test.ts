@@ -8,6 +8,7 @@ import {
   formatRepeat,
   nextOccurrence,
   nextSchedule,
+  occursOn,
   parseRepeat
 } from './repeat'
 import { parseTicket, type Ticket } from './ticket'
@@ -32,6 +33,7 @@ function ticket(partial: Partial<Ticket> & { id: string }): Ticket {
     author: null,
     created: null,
     done: null,
+    estimate: null,
     modified: null,
     parseError: null,
     ...partial
@@ -207,6 +209,39 @@ describe('nextOccurrence', () => {
   })
 })
 
+describe('occursOn', () => {
+  const on = (rule: string, date: string, startsOn: string | null = null): boolean =>
+    occursOn(parseRepeat(rule)!, date, startsOn)
+
+  it('曜日や月の規則がその日に当たるか', () => {
+    // 2026-11-24 は火曜
+    expect(on('weekly:tue', '2026-11-24')).toBe(true)
+    expect(on('weekly:mon,thu', '2026-11-24')).toBe(false)
+    expect(on('weekdays', '2026-11-28')).toBe(false)
+    expect(on('daily', '2026-11-28')).toBe(true)
+    expect(on('monthly:end', '2026-02-28')).toBe(true)
+    expect(on('monthly:31', '2026-04-30')).toBe(true)
+    expect(on('monthly:end-3', '2026-11-27')).toBe(true)
+    expect(on('monthly:2tue', '2026-11-10')).toBe(true)
+    expect(on('monthly:lastfri', '2026-11-20')).toBe(false)
+    expect(on('yearly:12-25', '2026-12-25')).toBe(true)
+  })
+
+  it('every は数え始めの日から数える。数え始めがなければ当たらない', () => {
+    expect(on('every:2w', '2026-11-24', '2026-11-10')).toBe(true)
+    expect(on('every:2w', '2026-11-17', '2026-11-10')).toBe(false)
+    expect(on('every:2w', '2026-10-27', '2026-11-10')).toBe(false)
+    expect(on('every:3d', '2026-11-16', '2026-11-10')).toBe(true)
+    expect(on('every:2m', '2027-01-31', '2026-11-30')).toBe(false)
+    expect(on('every:2m', '2027-01-30', '2026-11-30')).toBe(true)
+    expect(on('every:1w', '2026-11-24')).toBe(false)
+  })
+
+  it('after は決まった日には当たらない', () => {
+    expect(on('after:7d', '2026-11-24', '2026-11-17')).toBe(false)
+  })
+})
+
 describe('nextSchedule', () => {
   it('着手日があれば着手日を進め、期限は着手日からの日数を保つ', () => {
     // 毎月最終木曜に始めて、2日目（金曜）が期限の作業。10月の最終木曜は29日、11月は26日
@@ -283,6 +318,7 @@ describe('buildNextTicket', () => {
         'priority: 1',
         'start: 2026-10-21',
         'due: 2026-10-23',
+        'estimate: 90m',
         'repeat: weekly:fri',
         'tags: [仕事, A社]',
         'parent: 20261001-0900-pa01',
@@ -314,6 +350,7 @@ describe('buildNextTicket', () => {
         'priority: 1',
         'start: 2026-10-28',
         'due: 2026-10-30',
+        'estimate: 1h30m',
         'repeat: weekly:fri',
         'tags: [仕事, A社]',
         'parent: 20261001-0900-pa01',

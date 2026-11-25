@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppState } from '../shared/api'
 import { findWarnings } from '../shared/ticket'
 import { SAMPLE_TEMPLATES, TaskStore } from './taskStore'
+import { SKILL_NAMES, skillPath } from '../shared/ruleFiles'
 
 const template = readFileSync(join(__dirname, '../../templates/TEMPLATE.md'), 'utf8')
 
@@ -76,6 +77,7 @@ describe('TaskStore', () => {
     const s = await startStore()
     await s.initFolder()
     expect(readdirSync(tasksDir).sort()).toEqual([
+      '.claude',
       'AGENTS.md',
       'CLAUDE.md',
       'NOTE_TEMPLATE.md',
@@ -91,6 +93,13 @@ describe('TaskStore', () => {
     )
     expect(readFileSync(join(tasksDir, 'RULES.md'), 'utf8')).toBe('自分で直したルール\n')
     expect(readFileSync(join(tasksDir, 'TEMPLATE.md'), 'utf8')).toBe(template)
+    expect(readdirSync(join(tasksDir, '.claude', 'skills')).sort()).toEqual([...SKILL_NAMES].sort())
+    expect(
+      readFileSync(
+        join(tasksDir, '.claude', 'skills', 'mokkan-creating-tasks-from-notes', 'SKILL.md'),
+        'utf8'
+      )
+    ).toContain('name: mokkan-creating-tasks-from-notes')
   })
 
   it('起動時に md だけを読み込む（隠しファイルや md 以外は無視）', async () => {
@@ -684,6 +693,7 @@ describe('TaskStore', () => {
         { name: 'NOTE_TEMPLATE.md', state: 'missing', sample: false },
         { name: 'CLAUDE.md', state: 'missing', sample: false },
         { name: 'AGENTS.md', state: 'missing', sample: false },
+        ...SKILL_NAMES.map((name) => ({ name: skillPath(name), state: 'missing', sample: false })),
         ...SAMPLE_TEMPLATES.map(({ name }) => ({ name, state: 'missing', sample: true }))
       ])
     })
@@ -708,12 +718,38 @@ describe('TaskStore', () => {
         ['NOTE_TEMPLATE.md', 'missing'],
         ['CLAUDE.md', 'same'],
         ['AGENTS.md', 'same'],
+        // RULES.md を選んだので、skill も一緒に置く
+        ...SKILL_NAMES.map((name) => [skillPath(name), 'same']),
         ...SAMPLE_TEMPLATES.map(({ name }) => [name, 'missing'])
       ])
       expect(readFileSync(join(tasksDir, 'TEMPLATE.md'), 'utf8')).toBe('自分で直したテンプレート\n')
       expect(readFileSync(join(tasksDir, 'CLAUDE.md'), 'utf8')).toBe(
         readFileSync(join(__dirname, '../../templates/AI_GUIDE.md'), 'utf8')
       )
+    })
+
+    it('skill を1つ選んでも、RULES.md とほかの skill を一緒に原本にする', async () => {
+      mkdirSync(ticketsDir)
+      const skill = skillPath('mokkan-tidying-tickets')
+      mkdirSync(join(tasksDir, '.claude', 'skills', 'mokkan-tidying-tickets'), { recursive: true })
+      writeFileSync(join(tasksDir, ...skill.split('/')), '自分で直した手順\n')
+      writeFileSync(join(tasksDir, 'RULES.md'), '古いルール\n')
+      const trashed: string[] = []
+      store = new TaskStore(tasksDir, () => {}, {
+        trash: async (path) => {
+          trashed.push(path)
+          rmSync(path)
+        }
+      })
+      await store.start()
+      const result = await store.updateRuleFiles([skillPath('mokkan-creating-tasks-from-notes')])
+      expect(trashed.sort()).toEqual(
+        [join(tasksDir, 'RULES.md'), join(tasksDir, ...skill.split('/'))].sort()
+      )
+      const states = new Map(result.map((r) => [r.name, r.state]))
+      expect(states.get('RULES.md')).toBe('same')
+      for (const name of SKILL_NAMES) expect(states.get(skillPath(name))).toBe('same')
+      expect(states.get('CLAUDE.md')).toBe('missing') // まとまりの外は選んだものだけ
     })
 
     it('ごみ箱に移してから置くまでに同じ名前のファイルが現れたら、分かる文で知らせる', async () => {
@@ -907,6 +943,31 @@ describe('TaskStore', () => {
       writeFileSync(join(tasksDir, 'TAGS.md'), '# frontmatter なし\n')
       await waitFor(() => latest?.tagFile.error !== null && latest?.tagFile.error !== undefined)
       expect(latest?.tagColors).toEqual({})
+    })
+  })
+
+  describe('作業する時間（days/routine.md の work）', () => {
+    it('ないときは 9:00〜18:00。保存すると routine.md を作り、次からは work の行だけを書き換える', async () => {
+      mkdirSync(ticketsDir)
+      const s = await startStore()
+      expect(await s.readWorkHours()).toEqual({ start: 540, end: 1080 })
+
+      await s.saveWorkHours({ start: 570, end: 1050 })
+      const routinePath = join(tasksDir, 'days', 'routine.md')
+      expect(readFileSync(routinePath, 'utf8')).toBe(
+        '---\nwork: 09:30-17:30\n---\n\n# いつもの予定\n'
+      )
+      expect(await s.readWorkHours()).toEqual({ start: 570, end: 1050 })
+
+      writeFileSync(
+        routinePath,
+        '---\nwork: 09:30-17:30\n---\n\n# いつもの予定\n\n- weekdays 09:00-09:15 朝会\n'
+      )
+      await s.saveWorkHours({ start: 480, end: 1020 })
+      expect(readFileSync(routinePath, 'utf8')).toBe(
+        '---\nwork: 08:00-17:00\n---\n\n# いつもの予定\n\n- weekdays 09:00-09:15 朝会\n'
+      )
+      expect(s.getState().days.routine).toBeTypeOf('number')
     })
   })
 })

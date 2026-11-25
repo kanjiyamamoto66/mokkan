@@ -27,6 +27,11 @@ const api: MokkanApi = {
   checkRuleFiles: () => ipcRenderer.invoke(IPC.checkRuleFiles),
   updateRuleFiles: (names) => ipcRenderer.invoke(IPC.updateRuleFiles, names),
   createNextRepeat: (fileName) => ipcRenderer.invoke(IPC.createNextRepeat, fileName),
+  completeTicket: (fileName) => ipcRenderer.invoke(IPC.completeTicket, fileName),
+  readDay: (date) => ipcRenderer.invoke(IPC.readDay, date),
+  updateDay: (date, base, edit) => ipcRenderer.invoke(IPC.updateDay, date, base, edit),
+  getWorkHours: () => ipcRenderer.invoke(IPC.getWorkHours),
+  setWorkHours: (hours) => ipcRenderer.invoke(IPC.setWorkHours, hours),
   readTicket: (fileName) => ipcRenderer.invoke(IPC.readTicket, fileName),
   saveTicket: (fileName, baseText, newText, force) =>
     ipcRenderer.invoke(IPC.saveTicket, fileName, baseText, newText, force === true),
@@ -53,9 +58,7 @@ const api: MokkanApi = {
   backlinks: (fileName) => ipcRenderer.invoke(IPC.backlinks, fileName),
   fixLink: (fileName, href) => ipcRenderer.invoke(IPC.fixLink, fileName, href),
   copyLintReport: () => ipcRenderer.invoke(IPC.copyLintReport),
-  suggestTasksFromNote: (noteFileName, noteBase, options) =>
-    ipcRenderer.invoke(IPC.suggestTasksFromNote, noteFileName, noteBase, options),
-  cancelSuggestTasks: () => ipcRenderer.invoke(IPC.cancelSuggestTasks)
+  copyNotePrompt: (noteFileName) => ipcRenderer.invoke(IPC.copyNotePrompt, noteFileName)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to
