@@ -125,12 +125,15 @@ const shots = [
   {
     name: 'timetable',
     // 前に別の日へ移っていたら、今日（見本の時間割がある日）に戻す。
-    // 開いたときは今の時刻のあたりを出すので、撮るときはいつも朝（8:30）からにする
+    // 開いたときは今の時刻のあたりを出すので、撮るときはいつも朝（8:30）からにする。
+    // 今の時刻の赤い線は、撮る時刻で位置が変わり、予定の文字に重なると取り消し線に見えるので隠す
     steps: [
       view('時間割'),
       `const today = [...document.querySelectorAll('.timetable-bar button')].find((b) => b.textContent.trim() === '今日')
        if (today && !today.disabled) { today.click(); await sleep(600) }
        document.querySelector('.timetable-scroll').scrollTop = 8.5 * 48
+       const now = document.querySelector('.timetable-now')
+       if (now) now.style.display = 'none'
        await sleep(200)`
     ]
   },

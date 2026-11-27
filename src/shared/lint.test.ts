@@ -139,6 +139,15 @@ describe('lintFiles：リンク', () => {
     expect(items).toEqual([])
   })
 
+  it('ファイル名の濁点の形（NFC と NFD）が違うだけなら、ずれていない', () => {
+    const nfd = '20261101-0900-t002_見積をだす.md'.normalize('NFD')
+    const items = lintFiles(
+      [ticket('20261101-0900-t001.md', '[a](20261101-0900-t002_見積をだす.md)'), ticket(nfd)],
+      TODAY
+    )
+    expect(items).toEqual([])
+  })
+
   it('アーカイブのファイルのリンクは見ない', () => {
     expect(
       lintFiles([ticket('archive/20261101-0900-t001.md', '20261101-0900-gone')], TODAY)

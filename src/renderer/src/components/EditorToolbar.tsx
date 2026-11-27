@@ -9,6 +9,7 @@ import type {
   ToolbarAction,
   ToolbarState
 } from '../editor/toolbar'
+import { keyLabel, redoLabel } from '../keys'
 
 interface Props {
   state: ToolbarState
@@ -28,21 +29,31 @@ interface ButtonDef<A> {
 }
 
 const TEXT_BUTTONS: ButtonDef<FormatAction>[] = [
-  { action: 'strong', label: 'B', title: '太字（Ctrl+B）', className: 'strong' },
-  { action: 'emphasis', label: 'I', title: '斜体（Ctrl+I）', className: 'emphasis' },
-  { action: 'strike', label: 'S', title: '取り消し線（Ctrl+Alt+X）', className: 'strike' },
-  { action: 'inlineCode', label: '</>', title: 'インラインコード（Ctrl+E）', className: 'code' }
+  { action: 'strong', label: 'B', title: `太字（${keyLabel('Mod+B')}）`, className: 'strong' },
+  { action: 'emphasis', label: 'I', title: `斜体（${keyLabel('Mod+I')}）`, className: 'emphasis' },
+  {
+    action: 'strike',
+    label: 'S',
+    title: `取り消し線（${keyLabel('Mod+Alt+X')}）`,
+    className: 'strike'
+  },
+  {
+    action: 'inlineCode',
+    label: '</>',
+    title: `インラインコード（${keyLabel('Mod+E')}）`,
+    className: 'code'
+  }
 ]
 
 const LIST_BUTTONS: ButtonDef<FormatAction>[] = [
-  { action: 'bullet', label: '• リスト', title: '箇条書き（Ctrl+Alt+8）' },
-  { action: 'ordered', label: '1. リスト', title: '番号付きリスト（Ctrl+Alt+7）' },
+  { action: 'bullet', label: '• リスト', title: `箇条書き（${keyLabel('Mod+Alt+8')}）` },
+  { action: 'ordered', label: '1. リスト', title: `番号付きリスト（${keyLabel('Mod+Alt+7')}）` },
   { action: 'task', label: '☑ チェック', title: 'チェックボックス' }
 ]
 
 const INDENT_BUTTONS: ButtonDef<CommandAction>[] = [
   { action: 'indent', label: '→ 字下げ', title: 'リストの項目を字下げする（Tab）' },
-  { action: 'outdent', label: '← 戻す', title: 'リストの字下げを戻す（Shift+Tab）' }
+  { action: 'outdent', label: '← 戻す', title: `リストの字下げを戻す（${keyLabel('Shift+Tab')}）` }
 ]
 
 const BLOCK_BUTTONS: ButtonDef<FormatAction>[] = [
@@ -116,12 +127,12 @@ function EditorToolbar({ state, disabled, onAction, onHeading, onLink }: Props):
     <div className="editor-toolbar" role="toolbar" aria-label="書式">
       <div className="tool-group">
         {button(
-          { action: 'undo', label: '↶', title: '元に戻す（Ctrl+Z）' },
+          { action: 'undo', label: '↶', title: `元に戻す（${keyLabel('Mod+Z')}）` },
           undefined,
           !state.canUndo
         )}
         {button(
-          { action: 'redo', label: '↷', title: 'やり直す（Ctrl+Y）' },
+          { action: 'redo', label: '↷', title: `やり直す（${redoLabel()}）` },
           undefined,
           !state.canRedo
         )}

@@ -1,6 +1,6 @@
 # mokkan
 
-標準のmdファイル群をデータベースにした、個人用のタスク管理デスクトップアプリです（Windows 用）。
+標準のmdファイル群をデータベースにした、個人用のタスク管理デスクトップアプリです（Windows・Linux 用。Mac 版は基本の動作だけを確かめています）。
 
 ![一覧と編集画面](docs/images/overview.png)
 
@@ -15,7 +15,7 @@
 
 ### チケット
 
-1チケット＝1ファイルで、状態・優先度・着手日・期限・所要時間・繰り返し・担当者・タグ・親チケットを持ちます。「＋ 新規」（Ctrl+N）で作り、テンプレートも選べます。繰り返しのチケットは、完了にすると次回分ができます。完了したものはアーカイブで片付け、要らなくなったものは削除で Windows のごみ箱に移します。→ [一覧](docs/guide.md#一覧)・[編集画面](docs/guide.md#編集画面)
+1チケット＝1ファイルで、状態・優先度・着手日・期限・所要時間・繰り返し・担当者・タグ・親チケットを持ちます。「＋ 新規」（Ctrl+N）で作り、テンプレートも選べます。繰り返しのチケットは、完了にすると次回分ができます。完了したものはアーカイブで片付け、要らなくなったものは削除で OS のごみ箱に移します。→ [一覧](docs/guide.md#一覧)・[編集画面](docs/guide.md#編集画面)
 
 ![チケットの編集画面](docs/images/editor-ticket.png)
 
@@ -43,25 +43,66 @@ AI・ほかのエディタ・クラウドの同期で変わったファイルは
 ## 動作環境
 
 - Windows 10 / 11（64ビット）
-- AI と一緒に使うときは、ファイルを読み書きできる AI のアプリ（[Claude Code](https://code.claude.com/docs/en/overview)・Claude のデスクトップアプリの Code・[Cursor](https://cursor.com/) など）を `tasks` フォルダで使います。アプリが AI を呼ぶことはないので、mokkan の側で AI を入れたり設定したりする必要はありません。
+- Linux：Ubuntu・Debian など、deb のパッケージをインストールできるもの（x64）。Ubuntu 26.04（WSL2）で確かめています。
+- macOS（Apple シリコンと Intel）：基本の動作だけを確かめています（Apple シリコンの Mac で、一通りの操作）。動作は保証しません。
+- AI と一緒に使うときは、ファイルを読み書きできる AI のアプリ（[Claude Code](https://code.claude.com/docs/en/overview)・Claude のデスクトップアプリの Code・[Cursor](https://cursor.com/) など）を `tasks` フォルダで使います。アプリが AI を呼ぶことはないので、mokkan の側で AI をインストールしたり設定したりする必要はありません。
 
-今は Windows 専用です。mac と Linux のインストーラーは用意していません。
+ほかの環境（rpm を使う Linux・arm64 など）では、[ソースから作る](#ソースから作る)ことができます（試していません）。
 
 ## インストール
 
+### Windows
+
 1. GitHub の [Releases](https://github.com/kanjiyamamoto66/mokkan/releases) から `mokkan-<版>-setup.exe` を取ってきます。同じ Release の `SHA256SUMS.txt` で、取ってきたファイルが壊れていないかを確かめられます。PowerShell で `(Get-FileHash .\mokkan-<版>-setup.exe).Hash` を実行し、出た値が `SHA256SUMS.txt` の値と同じかを見てください（大文字と小文字の違いは気にしなくて構いません）。
-2. ダブルクリックすると、そのまま自分のユーザー用に入ります（`%LOCALAPPDATA%\Programs\mokkan`。管理者権限は要りません）。デスクトップとスタートメニューにショートカットができます。
+2. ダブルクリックすると、そのまま自分のユーザー用にインストールされます（インストール先は `%LOCALAPPDATA%\Programs\mokkan`。管理者権限は要りません）。デスクトップとスタートメニューにショートカットができます。
 3. コード署名をしていないので、初回は「Windows によって PC が保護されました」と出ることがあります。「詳細情報」→「実行」で進めてください。
 
-新しい版は、同じように上から入れれば置き換わります（自動更新はありません）。アンインストールは「設定」→「アプリ」から行います。アプリの設定（`%APPDATA%\mokkan`）と `tasks` フォルダの中身は、アンインストールしても消えません。
+新しい版は、新しい setup.exe を同じように実行してインストールすれば、前の版が置き換わります（自動更新はありません）。アンインストールは「設定」→「アプリ」から行います。アプリの設定（`%APPDATA%\mokkan`）と `tasks` フォルダの中身は、アンインストールしても消えません。
+
+### Linux（Ubuntu・Debian）
+
+1. GitHub の Releases から `mokkan-<版>-linux-amd64.deb` を取ってきます。`sha256sum mokkan-<版>-linux-amd64.deb` の値が、同じ Release の `SHA256SUMS.txt` の値と同じかで、壊れていないかを確かめられます。
+2. 取ってきたフォルダで `sudo apt install ./mokkan-<版>-linux-amd64.deb` を実行します（`./` を付けてください）。足りないライブラリと、日本語と絵文字のフォント（`fonts-noto-cjk`・`fonts-noto-color-emoji`）も一緒にインストールされます。
+3. アプリの一覧の「mokkan」か、端末の `mokkan` で起動します。
+
+インストール先は `/opt/mokkan` です。Ubuntu 24.04 以降では、画面を守る仕組み（sandbox）が動くよう、mokkan 用の AppArmor のプロファイル（`/etc/apparmor.d/mokkan`）も置きます。新しい版は、新しい deb を同じように `sudo apt install ./…deb` でインストールすれば、前の版が置き換わります（自動更新はありません）。アンインストールは `sudo apt remove mokkan` です。アプリの設定（`~/.config/mokkan`）と `tasks` フォルダの中身は、アンインストールしても消えません。
+
+### Mac（基本の動作の確認のみ）
+
+1. GitHub の Releases から、Mac の種類に合う zip を取ってきます。Apple シリコン（M1 以降）は `mokkan-<版>-mac-arm64.zip`、Intel は `mokkan-<版>-mac-x64.zip` です。どちらか分からないときは、アップルメニュー →「この Mac について」の「チップ」（Apple M… なら Apple シリコン）か「プロセッサ」（Intel なら Intel）で確かめられます。
+2. zip を開いてできた `mokkan.app` を「アプリケーション」フォルダに移します。
+3. Apple の公証（notarization）をしていないので、初回は「“mokkan”は開いていません」「Apple は…を検証できませんでした」と出て開けません。「完了」で閉じてから、システム設定 →「プライバシーとセキュリティ」を開き、下のほうの「“mokkan”は Mac を保護するためにブロックされました」の横の「このまま開く」を押してください（もう一度確かめられたら「このまま開く」を押し、パスワードか Touch ID で許可します）。2回目からは普通に開けます。
+
+ウィンドウを閉じてもアプリは終わりません（Mac の他のアプリと同じ）。終わるときは ⌘Q です。アプリの設定は `~/Library/Application Support/mokkan` に置きます。
+
+### ソースから作る
+
+配っているファイルを使わずに、自分でソースからインストーラーやアプリを作れます。[Git](https://git-scm.com/) と [Node.js](https://nodejs.org/) 24 が要ります。作るのは、使う OS の上で行います。
+
+```bash
+git clone --branch v<版> https://github.com/kanjiyamamoto66/mokkan.git
+cd mokkan
+npm ci
+```
+
+続けて、OS に合わせて1つを実行します。できたものは `dist/` にあり、インストールのしかたは上の各 OS と同じです。
+
+| OS | コマンド | できるもの |
+| --- | --- | --- |
+| Windows | `npm run build:win` | `mokkan-<版>-setup.exe` |
+| Linux | `npm run build:linux` | `mokkan-<版>-linux-amd64.deb` |
+| Mac | `npm run build:mac` | `mokkan-<版>-mac-arm64.zip`・`mokkan-<版>-mac-x64.zip` |
+
+- Windows で、インストーラーを作る段階で止まるとき（スマート アプリ コントロールが、署名のないインストーラーの作成に使うプログラムを止めることがあります）は、その前にできている `dist/win-unpacked/mokkan.exe` をそのまま起動して使えます。
+- Linux の rpm や arm64 などは、`npm run build` の後に `npx electron-builder --linux rpm --x64`・`npx electron-builder --linux deb --arm64` のように形式と種類を指定して作れます（試していません）。
 
 ## 使い方
 
 1. 起動したら、チケットを置く `tasks` フォルダを選びます。Google Drive・OneDrive・Dropbox などの同期フォルダの中を選ぶと、複数のPCで使えます（ファイルを PC にも置く設定にしてください。クラウドにだけ置く設定では、変更に気付けないことがあります）。
 2. 空のフォルダなら「準備する」で、`tickets/`・`notes/共通/` と `RULES.md`・テンプレート・AI 向けの案内（`CLAUDE.md`・`AGENTS.md`）・skill（`.claude/skills/`）を置きます。
-3. 「設定」で自分の名前を入れます（初めての起動では、設定ボタンに印が付きます）。作ったチケットの作成者と担当者に入り、担当者の絞り込みで「自分」を選べます。
+3. 「設定」で自分の名前を入力します（初めての起動では、設定ボタンに印が付きます）。名前は、作ったチケットの作成者と担当者の欄に使われ、担当者の絞り込みで「自分」を選べるようになります。
 4. 「＋新規」でチケットを作ります。画面上部で「一覧／カレンダー／ガント／時間割／ノート」を切り替えます。
-5. 新しい版を入れたら、設定の「ルールのファイル」で `tasks/` の RULES.md や skill などを最新にします（違うときは、設定ボタンに印が付きます）。
+5. 新しい版をインストールしたら、設定の「ルールのファイル」で `tasks/` の RULES.md や skill などを最新にします（違うときは、設定ボタンに印が付きます）。
 
 AIにタスクを扱わせるときは、AI を `tasks` フォルダで起動してください。`CLAUDE.md`・`AGENTS.md` の案内で `tasks/RULES.md` を先に読み、作業の手順は skill に従います。起動のしかたは、上の「？」の「はじめに」にあります。
 
@@ -82,7 +123,7 @@ AIにタスクを扱わせるときは、AI を `tasks` フォルダで起動し
 
 ## 開発の始め方
 
-Node.js 24（`.node-version` に記載）が必要です。[fnm](https://github.com/Schniz/fnm) を使うと、このフォルダに入ったときに自動で切り替わります。
+Node.js 24（`.node-version` に記載）が必要です。[fnm](https://github.com/Schniz/fnm) を使うと、このフォルダに移ったとき（`cd` したとき）に自動で切り替わります。
 
 ```bash
 npm install
@@ -101,6 +142,8 @@ npm run dev
 | `npm run lint` | ESLint |
 | `npm run format` | Prettierで整形する（mdは対象外） |
 | `npm run build:win` | Windows用のインストーラーを `dist/` に作る |
+| `npm run build:mac` | Mac 用のアプリ（Apple シリコン用と Intel 用の zip）を `dist/` に作る（Mac の上でだけ動く） |
+| `npm run build:linux` | Linux 用の deb（x64）を `dist/` に作る（Linux の上でだけ動く） |
 | `npm run icons` | `build/icon.svg` からアプリのアイコン（ico・png）を作り直す |
 | `npm run screenshots` | 使い方と README のスクリーンショット（`docs/images/`）を撮り直す（手順は `scripts/take-screenshots.mjs` の先頭） |
 | `npm run skill-evals` | 標準の skill の評価を、パソコンの Claude Code で Haiku・Sonnet・Opus に試す |
@@ -111,7 +154,7 @@ PRを作ると、GitHub Actions で型チェック・lint・テスト・ビル�
 
 1. `package.json` の `version` を上げる PR を作り、main にマージします。
 2. main で、その版のタグを付けて push します（例：`git tag v0.2.0` → `git push origin v0.2.0`）。
-3. GitHub Actions（`.github/workflows/release.yml`）がインストーラーとハッシュ値を作り、GitHub Release に置きます。タグが main のコミットに付いていないときと、タグと `version` が違うときは止まります。
+3. GitHub Actions（`.github/workflows/release.yml`）が Windows のインストーラー・Mac の zip・Linux の deb とハッシュ値を作り、GitHub Release に置きます。タグが main のコミットに付いていないときと、タグと `version` が違うときは止まります。
 
 ## 技術構成
 
@@ -121,4 +164,4 @@ Electron / React / TypeScript / Milkdown / FullCalendar / SVAR Gantt（MIT版）
 
 [MIT](LICENSE)
 
-アプリに同梱しているライブラリのライセンスは、インストール先（`%LOCALAPPDATA%\Programs\mokkan`）の `licenses/` フォルダと、`LICENSE.electron.txt`・`LICENSES.chromium.html` にあります。
+アプリに同梱しているライブラリのライセンスは、インストール先（`%LOCALAPPDATA%\Programs\mokkan`）の `licenses/` フォルダと、`LICENSE.electron.txt`・`LICENSES.chromium.html` にあります（Linux は `/opt/mokkan`、Mac は `mokkan.app/Contents/` の下）。

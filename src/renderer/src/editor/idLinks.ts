@@ -1,12 +1,14 @@
 // 本文の中のチケット・ノートの ID に印を付け、横にタイトルを薄く出す。Ctrl+クリック（macは⌘+クリック）で開く
 // 他のチケットやノートへの md のリンクも、リンク先のファイル名の先頭の ID で開く（ファイル名が変わっても開ける）
+// http/https のリンクも、同じ操作で既定のブラウザで開く（編集できる場所のリンクは、クリックしてもブラウザが開かないため）
 // 画面の飾り（ProseMirror の decoration）だけで、本文（ファイル）には何も書かない
 
 import type { Node } from '@milkdown/kit/prose/model'
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
 import { Decoration, DecorationSet, type EditorView } from '@milkdown/kit/prose/view'
 import { $prose } from '@milkdown/kit/utils'
-import { findIds, idFromHref } from '../../../shared/links'
+import { findIds, idFromHref, isExternalUrl } from '../../../shared/links'
+import { clickLabel, isModKey } from '../keys'
 
 export { findIds, type IdMatch } from '../../../shared/links'
 
@@ -15,6 +17,13 @@ export interface IdLinkOptions {
   titleOf: (id: string) => string | undefined
   /** ID のチケットかノートを開く */
   open: (id: string) => void
+  /** http/https のリンクを開く。既定は window.open で、裏方（setWindowOpenHandler）が既定のブラウザに渡す */
+  openUrl?: (url: string) => void
+}
+
+/** 新しいウィンドウは作られず、裏方が http/https だけを既定のブラウザで開く（index.ts の setWindowOpenHandler） */
+function openInBrowser(url: string): void {
+  window.open(url, '_blank', 'noopener')
 }
 
 const key = new PluginKey<DecorationSet>('mokkanIdLinks')
@@ -37,7 +46,19 @@ function decorate(doc: Node, options: IdLinkOptions): DecorationSet {
     if (node.marks.some((m) => m.type.name === 'inlineCode')) return true
     // 他のチケットやノートへの md のリンク（`[タイトル](../tickets/ID_….md)`）は、リンク先の ID で開く
     const link = node.marks.find((m) => m.type.name === 'link')
-    const linkedId = link ? idFromHref(String(link.attrs.href ?? '')) : null
+    const href = link ? String(link.attrs.href ?? '') : ''
+    // http/https のリンクは、Ctrl+クリック（Mac は ⌘+クリック）でブラウザで開けることを添える（印の見た目はリンクのまま）
+    if (isExternalUrl(href)) {
+      decorations.push(
+        Decoration.inline(
+          pos,
+          pos + node.nodeSize,
+          { title: `${href}（${clickLabel()}でブラウザで開く）` },
+          { url: href }
+        )
+      )
+    }
+    const linkedId = link ? idFromHref(href) : null
     if (linkedId) {
       const title = options.titleOf(linkedId)
       decorations.push(
@@ -48,7 +69,7 @@ function decorate(doc: Node, options: IdLinkOptions): DecorationSet {
             class: title !== undefined ? 'id-link file-link' : 'id-link file-link unknown',
             title:
               title !== undefined
-                ? `${title || '（タイトルなし）'}（Ctrl+クリックで開く）`
+                ? `${title || '（タイトルなし）'}（${clickLabel()}で開く）`
                 : `見つからないリンク先（${linkedId}）`
           },
           { id: linkedId }
@@ -76,7 +97,7 @@ function decorate(doc: Node, options: IdLinkOptions): DecorationSet {
           {
             class: known ? 'id-link' : 'id-link unknown',
             title: known
-              ? `${title || '（タイトルなし）'}（Ctrl+クリックで開く）`
+              ? `${title || '（タイトルなし）'}（${clickLabel()}で開く）`
               : '見つからない ID'
           },
           { id }
@@ -110,12 +131,21 @@ export function idLinks(options: IdLinkOptions): ReturnType<typeof $prose> {
         props: {
           decorations: (state) => key.getState(state),
           handleClick: (view, pos, event) => {
-            if (!(event.ctrlKey || event.metaKey)) return false
+            // Ctrl+クリック（Mac は ⌘+クリック。Mac の ⌃+クリックは右クリックなので開かない）
+            if (!isModKey(event)) return false
             const found = key.getState(view.state)?.find(pos, pos) ?? []
-            const id = found.map((d) => (d.spec as { id?: string }).id).find(Boolean)
-            if (!id || options.titleOf(id) === undefined) return false
-            options.open(id)
-            return true
+            const specs = found.map((d) => d.spec as { id?: string; url?: string })
+            const id = specs.map((s) => s.id).find(Boolean)
+            if (id && options.titleOf(id) !== undefined) {
+              options.open(id)
+              return true
+            }
+            const url = specs.map((s) => s.url).find(Boolean)
+            if (url && isExternalUrl(url)) {
+              ;(options.openUrl ?? openInBrowser)(url)
+              return true
+            }
+            return false
           }
         }
       })

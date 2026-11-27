@@ -42,7 +42,53 @@ nsis:
   installerLanguages:
     - ja_JP
   language: '1041'
-# 今は Windows 専用。mac と Linux のインストーラーは作らない
+# Mac は、ここではアプリ（mokkan.app）だけを作り（electron-builder --mac --dir）、
+# scripts/package-mac.sh が ad-hoc 署名をし直して zip にする（理由はそのスクリプトを参照）。
+# Apple シリコン用と Intel 用を別々に作る（両方入りの universal は大きくなるため）
+mac:
+  icon: build/icon.icns
+  category: public.app-category.productivity
+  # 証明書での署名と公証（notarization）はしない。ad-hoc 署名は package-mac.sh で付ける
+  identity: null
+# Linux は Ubuntu・Debian 向けの deb（x64）だけを作る。
+# AppImage は、Ubuntu 24.04 以降の制限（AppArmor）で Chromium の sandbox が動かず起動しないことがあるので作らない
+# （deb は入れるときに、AppArmor が有効なら mokkan 用のプロファイルを置き、user namespace が使えない環境では
+# chrome-sandbox を root の setuid にするので、制限の下でも sandbox が動く。scripts/smoke-linux.sh で確かめる）
+linux:
+  executableName: mokkan
+  # Wayland でウィンドウとアイコン（mokkan.desktop）を結び付ける（package.json の desktopName）
+  syncDesktopName: true
+  icon: build/icon.png
+  category: Office
+  synopsis: 標準の md ファイルで管理する、個人用のタスク管理アプリ
+  # deb には管理者の名前とメールが要る（コミットと同じ GitHub の noreply を使う）
+  maintainer: kanjiyamamoto66 <344183349+kanjiyamamoto66@users.noreply.github.com>
+  target:
+    - target: deb
+      arch: x64
+# /opt/mokkan に入れ、/usr/bin/mokkan から起動できるようにする。設定は ~/.config/mokkan
+deb:
+  artifactName: ${name}-${version}-linux-amd64.${ext}
+  # electron-builder の既定の依存に、音（libasound）と描画（libgbm）のライブラリを足す。
+  # ないと最小構成の Ubuntu（WSL など）で起動できない。Ubuntu 24.04 以降の音のパッケージは libasound2t64
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libuuid1
+    - libsecret-1-0
+    - libasound2t64 | libasound2
+    - libgbm1
+  # 日本語と絵文字（所要時間の ⏱ など）のフォント。Ubuntu のデスクトップには初めからあるが、
+  # 最小構成（WSL など）にはなく、文字が □ になる。apt は推奨（Recommends）も既定で入れる。
+  # 既定の libappindicator3-1 はトレイを使わないので外す
+  recommends:
+    - fonts-noto-cjk
+    - fonts-noto-color-emoji
 npmRebuild: false
 # 配布するアプリで使わない機能を切っておく（Electron の Fuses）
 # - 環境変数（ELECTRON_RUN_AS_NODE・NODE_OPTIONS）や --inspect で、アプリを素の Node として動かしたり中を書き換えたりさせない

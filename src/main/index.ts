@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, clipboard, dialog, ipcMain, session } from 'electron'
+import { app, shell, BrowserWindow, clipboard, dialog, ipcMain, Menu, session } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -56,7 +56,11 @@ let mainWindow: BrowserWindow | null = null
 let store: TaskStore | null = null
 
 app.on('second-instance', () => {
-  if (!mainWindow) return
+  // Mac はウィンドウを閉じてもアプリが残るので、ウィンドウがなければ作り直す
+  if (!mainWindow) {
+    if (app.isReady() && store) createWindow()
+    return
+  }
   if (mainWindow.isMinimized()) mainWindow.restore()
   mainWindow.focus()
 })
@@ -300,6 +304,21 @@ app.whenReady().then(async () => {
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
+
+  // Mac はアプリのメニューがないと、コピー・貼り付け・元に戻すなどのショートカットが効かない。
+  // Electron の既定のメニューには再読み込みや開発者ツールもあるので、要るものだけにする
+  // （ファイル＝閉じる ⌘W、表示＝フルスクリーン ⌃⌘F。Mac の windowMenu には「閉じる」が入らない）
+  if (process.platform === 'darwin') {
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate([
+        { role: 'appMenu' },
+        { role: 'fileMenu' },
+        { role: 'editMenu' },
+        { label: '表示', submenu: [{ role: 'togglefullscreen' }] },
+        { role: 'windowMenu' }
+      ])
+    )
+  }
 
   registerIpc()
   await restartStore()

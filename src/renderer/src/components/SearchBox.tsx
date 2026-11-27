@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { SearchHit, SearchKind } from '../../../shared/search'
+import { isModKey, keyLabel } from '../keys'
 
 interface Props {
   /** 当たったものを開く。term は当たった箇所まで動かすときに探す語 */
@@ -30,10 +31,10 @@ function SearchBox({ onOpen }: Props): React.JSX.Element {
   /** 古い問い合わせの答えで新しい結果を上書きしないための番号 */
   const requestRef = useRef(0)
 
-  // Ctrl+K（mac は ⌘K）で検索欄に入る
+  // Ctrl+K（mac は ⌘K。Mac の ⌃K は行末まで消すキーなので受け取らない）で検索欄に入る
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
+      if (isModKey(e) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         inputRef.current?.focus()
         inputRef.current?.select()
@@ -85,7 +86,7 @@ function SearchBox({ onOpen }: Props): React.JSX.Element {
         ref={inputRef}
         type="search"
         value={query}
-        placeholder="検索（Ctrl+K）"
+        placeholder={`検索（${keyLabel('Mod+K')}）`}
         aria-label="チケット・ノートを探す"
         onChange={(e) => {
           setQuery(e.target.value)
