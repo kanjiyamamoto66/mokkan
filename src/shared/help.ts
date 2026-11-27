@@ -205,7 +205,7 @@ export const HELP_SECTIONS: Record<ScreenTopic, HelpSection> = {
       },
       {
         label: '[[ でリンク',
-        text: '本文で [[ と打つと、チケットやノートの候補が出ます。リンクは Ctrl+クリックで開きます。'
+        text: '本文で [[ と打つと、チケットやノートの候補が出ます。リンクは Ctrl+クリック（Mac は ⌘+クリック）で開きます（http/https のリンクはブラウザで開きます）。'
       },
       {
         label: '＋ ここからチケット',

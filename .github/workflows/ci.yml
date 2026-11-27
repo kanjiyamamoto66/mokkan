@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   check:
-    # Windows 専用のアプリなので、改行やパスの問題に早く気づけるよう Windows で回す
+    # 主に使うのは Windows なので、改行やパスの問題に早く気づけるよう Windows で回す
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -40,3 +40,68 @@ jobs:
       - run: npm test
 
       - run: npx electron-vite build
+
+  # Mac でもテストが通るか、アプリを作って署名が正しく起動できるかを確かめる。
+  # 作ったアプリ（zip）は成果物として置き、Mac で試す人がダウンロードできるようにする
+  mac:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
+
+      # 型チェックとビルドをして、Apple シリコン用と Intel 用のアプリを作り、ad-hoc 署名と起動の確認をして zip にする
+      - run: npm run build:mac
+        env:
+          MOKKAN_SMOKE_TEST: '1'
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mokkan-mac
+          path: dist/mokkan-*-mac-*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  # Linux でもテストが通るか、deb を作って入れ、起動できるかを確かめる。
+  # 作った deb は成果物として置き、Linux で試す人がダウンロードできるようにする
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
+
+      # 型チェックとビルドをして、deb を作る
+      - run: npm run build:linux
+
+      # 画面のない環境で起動するための xvfb を入れ、deb を入れて起動を確かめる
+      - run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - run: bash scripts/smoke-linux.sh
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mokkan-linux
+          path: dist/mokkan-*-linux-amd64.deb
+          if-no-files-found: error
+          retention-days: 14

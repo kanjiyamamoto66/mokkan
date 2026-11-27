@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
+import { keyLabel } from '../keys'
 
 interface Props {
   /** ボタンの文字（「新規」「新規ノート」）。前に ＋ のアイコンを付ける。上の帯が狭いときはアイコンだけにする */
@@ -57,7 +58,7 @@ function NewButton({
         className="primary new-main with-icon shrink-3"
         disabled={disabled}
         onClick={() => onCreate(choice)}
-        title={`${label}：テンプレート「${choice ?? '標準'}」で作ります（Ctrl+N）`}
+        title={`${label}：テンプレート「${choice ?? '標準'}」で作ります（${keyLabel('Mod+N')}）`}
         aria-label={label}
       >
         <Plus className="icon" aria-hidden="true" />
@@ -65,7 +66,7 @@ function NewButton({
           {label}
           {choice && <span className="new-choice">（{choice}）</span>}
         </span>
-        <kbd>Ctrl+N</kbd>
+        <kbd>{keyLabel('Mod+N')}</kbd>
       </button>
       <button
         className="primary new-menu"

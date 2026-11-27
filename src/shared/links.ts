@@ -86,6 +86,19 @@ export function idFromHref(href: string): string | null {
   return idFromFileName(path.slice(path.lastIndexOf('/') + 1))
 }
 
+/**
+ * 外部のブラウザで開いてよい URL か（http と https だけ。file: などは開かない）
+ * 本文のリンクを開くとき（画面）と、新しいウィンドウを開く要求を受けたとき（裏方）の両方で確かめる
+ */
+export function isExternalUrl(url: string): boolean {
+  try {
+    const { protocol } = new URL(url)
+    return protocol === 'http:' || protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 /** 文の中の ID（`YYYYMMDD-HHMM-xxxx`）。前後が英数字に続いているものは除く */
 const ID_IN_TEXT = /(?<![0-9A-Za-z])\d{8}-\d{4}-[a-z0-9]{4}(?![0-9A-Za-z])/g
 

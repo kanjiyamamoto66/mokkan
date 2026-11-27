@@ -51,6 +51,7 @@ import EditorToolbar from './EditorToolbar'
 import LinkSuggestList from './LinkSuggestList'
 import NoteProperties from './NoteProperties'
 import PropertyForm from './PropertyForm'
+import { backLabel as backKeyLabel } from '../keys'
 
 /** 入力が止まってから保存するまでの時間 */
 const SAVE_DELAY_MS = 600
@@ -717,7 +718,7 @@ function TicketEditor({
           <button
             className="ghost back"
             onClick={onBack}
-            title={`${backLabel ? `「${backLabel}」に` : ''}戻る（Alt+←）`}
+            title={`${backLabel ? `「${backLabel}」に` : ''}戻る（${backKeyLabel()}）`}
           >
             ← 戻る
           </button>

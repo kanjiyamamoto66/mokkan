@@ -46,6 +46,7 @@ import PaneSplitter from './components/PaneSplitter'
 import HelpDialog from './components/HelpDialog'
 import type { HelpTopic } from '../../shared/help'
 import type { PaneView, PaneWidths } from '../../shared/paneWidth'
+import { isBackKey, isModKey } from './keys'
 
 type View = PaneView
 
@@ -362,12 +363,12 @@ function App(): React.JSX.Element {
     }
   }, [selected])
 
-  // 1操作で作れるよう、Ctrl+N（macは⌘N）で新規作成する
+  // 1操作で作れるよう、Ctrl+N（macは⌘N。Mac の ⌃N は次の行への移動なので受け取らない）で新規作成する
   const ready = state?.folderStatus === 'ready'
   useEffect(() => {
     if (!ready) return
     const onKeyDown = (e: KeyboardEvent): void => {
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
+      if (isModKey(e) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
         e.preventDefault()
         void createNew()
       }
@@ -444,11 +445,11 @@ function App(): React.JSX.Element {
     setSelected({ fileName: backTarget, isNew: false })
   }, [backTarget])
 
-  // Alt+← とマウスの「戻る」ボタンでも戻る
+  // Alt+←（Mac は ⌘[）とマウスの「戻る」ボタンでも戻る
   useEffect(() => {
     if (!backTarget) return
     const onKeyDown = (e: KeyboardEvent): void => {
-      if (e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey && e.key === 'ArrowLeft') {
+      if (isBackKey(e)) {
         e.preventDefault()
         goBack()
       }

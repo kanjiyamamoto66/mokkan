@@ -201,7 +201,9 @@ export function lintFiles(entries: readonly LintEntry[], today: string): LintIte
         continue
       }
       if (ref.href === null || shifted.has(ref.href)) continue
-      if (resolveLinkPath(file.fileName, ref.href) === tasksPathOf(target)) continue
+      // Mac はファイル名の濁点などを分けた形（NFD）で返すことがあるので、揃えて比べる
+      const resolved = resolveLinkPath(file.fileName, ref.href)
+      if (resolved?.normalize('NFC') === tasksPathOf(target).normalize('NFC')) continue
       shifted.add(ref.href)
       items.push({
         kind: 'shifted-link',

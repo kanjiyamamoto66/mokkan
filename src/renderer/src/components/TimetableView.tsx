@@ -3,7 +3,16 @@
 // - 予定はドラッグで動かし、下の端で長さを変える（15分刻み）。空いている時間をダブルクリックして予定を足す
 // - 書き換えは裏方に「どの行をどう変えるか」を渡す（updateDay）。ファイルのほかの行は変えない
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode
+} from 'react'
 import type { Note } from '../../../shared/note'
 import type { TemplateList } from '../../../shared/api'
 import {
@@ -62,17 +71,40 @@ const DEFAULT_EVENT_MINUTES = 60
 /** ドラッグで渡すチケットの種類 */
 const TICKET_MIME = 'application/x-mokkan-ticket'
 
-/** 予定の高さの下限（px）。15分（12px）では文字が1行も入らないので、1行分は取る */
-const MIN_ENTRY_PX = 20
-/** これより短い予定は、時刻と内容を1行に並べ、入りきらない内容は「…」で省く */
+/**
+ * 予定の高さの下限（px）。予定は本当の長さの高さで描き、すぐ後ろの予定に重ならないようにする
+ * （高さを足すと、後ろの予定に重なって文字が隠れ、掴む範囲も重なる）。15分より短い予定だけ、15分の高さで描く
+ */
+const MIN_ENTRY_PX = SNAP * PX_PER_MIN
+/**
+ * これより短い予定は、時刻と内容を1行に並べ、入りきらない内容は「…」で省く。
+ * マウスを乗せる・キーボードで移ると、時刻と内容の全体を載せたカードを重ねる（EntryCard・main.css の .timetable-card）
+ */
 const SHORT_MINUTES = 45
+/**
+ * これより短い予定（15分など。20px より低い）は細い帯にし、内容だけを小さな文字で出す（時刻は位置で分かり、
+ * 乗せると出る。main.css の .timetable-entry.thin）
+ */
+const THIN_MINUTES = 25
 
 function entryHeight(start: number, end: number): number {
   return Math.max((end - start) * PX_PER_MIN, MIN_ENTRY_PX)
 }
 
-function isShort(start: number, end: number): boolean {
-  return end - start < SHORT_MINUTES
+/** 予定の長さに合わせた class（短い予定・細い帯） */
+function sizeClass(start: number, end: number): string {
+  const minutes = end - start
+  if (minutes < THIN_MINUTES) return 'short thin'
+  return minutes < SHORT_MINUTES ? 'short' : ''
+}
+
+/**
+ * 予定の位置と高さ。高さは --entry-h にも入れ、書き換えで短い予定を広げたときに、それより低くならないようにし、
+ * 長さを変えるつまみを本当の終わりに置く
+ */
+function entryBox(start: number, end: number): CSSProperties {
+  const height = entryHeight(start, end)
+  return { top: start * PX_PER_MIN, height, '--entry-h': `${height}px` } as CSSProperties
 }
 
 function snap(minutes: number): number {
@@ -695,16 +727,16 @@ function TimetableView({
             {preview.map((r, i) => (
               <div
                 key={`preview-${i}`}
-                className={`timetable-entry preview${isShort(r.start, r.end) ? ' short' : ''}`}
-                style={{ top: r.start * PX_PER_MIN, height: entryHeight(r.start, r.end) }}
-                title="いつもの予定（まだファイルにありません）"
+                className={`timetable-entry preview ${sizeClass(r.start, r.end)}`}
+                style={entryBox(r.start, r.end)}
+                title={`${formatTime(r.start)}-${formatTime(r.end)} ${r.content}（いつもの予定。まだファイルにありません）`}
                 tabIndex={0}
               >
                 <span className="timetable-time">
                   {formatTime(r.start)}-{formatTime(r.end)}
                 </span>
                 <span className="timetable-label">{r.content}</span>
-                <span className="timetable-actions">
+                <EntryCard time={`${formatTime(r.start)}-${formatTime(r.end)}`} label={r.content}>
                   <button
                     type="button"
                     className="ghost"
@@ -714,7 +746,7 @@ function TimetableView({
                   >
                     この日は外す
                   </button>
-                </span>
+                </EntryCard>
               </div>
             ))}
 
@@ -735,6 +767,17 @@ function TimetableView({
                     : null
               const done = target?.kind === 'ticket' && target.ticket.status === 'done'
               const plain = entry.href === null
+              const isEditing = editing === entry.line
+              const labelContent = (
+                <>
+                  {label}
+                  {target === null && entry.href && ' （リンク先が見つかりません）'}
+                  {target?.kind === 'ticket' &&
+                    target.ticket.status &&
+                    target.ticket.status !== 'todo' &&
+                    ` ・${STATUS_LABELS[target.ticket.status]}`}
+                </>
+              )
               return (
                 <div
                   key={entry.line}
@@ -744,11 +787,11 @@ function TimetableView({
                     done ? 'done' : '',
                     fileName && fileName === selected ? 'selected' : '',
                     drag?.entry.line === entry.line ? 'dragging' : '',
-                    isShort(start, end) ? 'short' : ''
+                    isEditing ? 'editing' : '',
+                    sizeClass(start, end)
                   ].join(' ')}
                   style={{
-                    top: start * PX_PER_MIN,
-                    height: entryHeight(start, end),
+                    ...entryBox(start, end),
                     left: `calc(52px + (100% - 56px) * ${column / columns})`,
                     width: `calc((100% - 56px) / ${columns} - 2px)`
                   }}
@@ -781,7 +824,7 @@ function TimetableView({
                   <span className="timetable-time">
                     {formatTime(start)}-{formatTime(end)}
                   </span>
-                  {editing === entry.line ? (
+                  {isEditing ? (
                     <EntryInput
                       initial={entry.content}
                       submitLabel="保存"
@@ -801,20 +844,10 @@ function TimetableView({
                       onCancel={() => setEditing(null)}
                     />
                   ) : (
-                    <span className="timetable-label">
-                      {label}
-                      {target === null && entry.href && ' （リンク先が見つかりません）'}
-                      {target?.kind === 'ticket' &&
-                        target.ticket.status &&
-                        target.ticket.status !== 'todo' &&
-                        ` ・${STATUS_LABELS[target.ticket.status]}`}
-                    </span>
+                    <span className="timetable-label">{labelContent}</span>
                   )}
-                  <span
-                    className="timetable-actions"
-                    // 書き換えている間は、入力欄の決める・やめるのボタンだけを出す
-                    hidden={editing === entry.line}
-                  >
+                  {/* 書き換えている間は、カード（とボタン）を出さず、入力欄の決める・やめるのボタンだけにする */}
+                  <EntryCard time={`${formatTime(start)}-${formatTime(end)}`} label={labelContent}>
                     {/* 記号（✓ など）は「置くのを決める」ボタンと間違えやすいので、どのボタンも文字で書く */}
                     {target?.kind === 'ticket' && !done && !target.ticket.archived && (
                       <button
@@ -853,7 +886,7 @@ function TimetableView({
                     >
                       外す
                     </button>
-                  </span>
+                  </EntryCard>
                   <span
                     className="timetable-resize"
                     title="ドラッグして長さを変える"
@@ -937,6 +970,31 @@ function TimetableView({
         />
       )}
     </div>
+  )
+}
+
+/**
+ * 予定に乗せた・移ったときに重ねるカード（時刻と内容の全体と、予定のボタン）。main.css の .timetable-card
+ * カードはマウスが素通りするので、下の予定にも乗せられる。ボタンは1行目の右に回り込ませ、文字を隠さない。
+ * 時刻と内容は予定の帯にもあり、読み上げで二重にならないよう、カードのほうは読み上げから外す
+ */
+function EntryCard({
+  time,
+  label,
+  children
+}: {
+  time: string
+  label: ReactNode
+  children: ReactNode
+}): React.JSX.Element {
+  return (
+    <span className="timetable-card">
+      <span className="timetable-actions">{children}</span>
+      <span aria-hidden="true">
+        <span className="timetable-card-time">{time}</span>
+        {label}
+      </span>
+    </span>
   )
 }
 

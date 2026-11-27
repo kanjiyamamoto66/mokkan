@@ -47,11 +47,11 @@
 | `src/shared/day.ts` | 時間割（`days/YYYY-MM-DD.md`）の予定の行の読み取り（`parseDay`。崩れた行は `broken`）と書き換え（`applyDayEdit`。足す・書き換える・消す。ほかの行は変えない）・いつもの予定（`days/routine.md`。`parseRoutine`・`routineFor`）・新しい日のファイル（`newDayText`）・重なった予定の列（`layoutColumns`）・その日の候補（`dayCandidates`）・作業する時間（`WorkHours`・`busyMinutes`。routine.md の frontmatter の `work` の読み書きは `routineWorkHours`・`setRoutineWorkHours`。AI も読めるよう個人設定には置かない） |
 | `src/shared/duration.ts` | 所要時間（チケットの `estimate`。`30m`・`1h`・`1h30m`）の読み書き |
 | `src/shared/search.ts` | 全文検索の当たりの判定（語の分け方・文字起こしを除く・当たった箇所の文）。ファイルを読むのは `TaskStore.search`（探すたびに読む） |
-| `src/shared/links.ts` | 他のチケット・ノートへの md のリンク（相対パス・リンク先の ID・リンク先が指すファイル `resolveLinkPath`）と、文の中の ID（`findIds`）・リンクの候補の絞り込み・探すための文字の揃え方（`normalizeForSearch`） |
+| `src/shared/links.ts` | 他のチケット・ノートへの md のリンク（相対パス・リンク先の ID・リンク先が指すファイル `resolveLinkPath`）と、文の中の ID（`findIds`）・リンクの候補の絞り込み・探すための文字の揃え方（`normalizeForSearch`）・外部のブラウザで開いてよい URL か（`isExternalUrl`。http/https だけ。画面の本文のリンクと裏方の `setWindowOpenHandler` の両方で使う） |
 | `src/shared/lint.ts` | ノートの点検（`lintFiles`：切れたリンク・ずれたリンク・入口がない・入口から外れた知識・見直していない知識・確かめていない記述・長すぎる知識）・被リンク（`backlinksOf`）・本文のリンクと ID の読み取り（`bodyRefs`、remark で読み、コードの中は除く）・ずれたリンクを直す（`replaceLinkDestination`）・結果の md（`lintToMarkdown`）。ファイルを読むのは `TaskStore.lint`・`backlinks`・`fixLink`（呼ばれるたびに読む） |
 | `src/shared/api.ts` | 裏方と画面の間の IPC の型とチャンネル名 |
 | `src/main/taskStore.ts` | `tasks/` の読み込み・監視（`tickets/`・`archive/`・`notes/`・`days/`・`TAGS.md`）・時間割の読み書き（`readDay`・`updateDay`・作業する時間の `readWorkHours`・`saveWorkHours`）・チケットを完了にする（`completeTicket`）・作成（チケット・ノート・ノートから起こすチケット）・保存・空チケットの削除・繰り返しの次回分の作成・アーカイブ・ごみ箱への削除・ルールのファイル（`RULE_FILES`）の確認と更新・タグの色の書き込み（`setTagColor`）・全文検索（`search`）・起動時の見出しの付け足し（`renameUntitledFiles`） |
-| `src/main/ipc.ts` | IPC の入力の確かめ（`requireString`・`requireStringArray`・`normalizeTitle`・`normalizeTag`・`requireHue`・`normalizeFromNoteOptions`）、ハンドラー、設定への案内の判定（`decideOnboarding`・`onboardingHandlers`）、外部のブラウザで開いてよい URL か（http/https だけ）。electron に依存しないので Node 上でテストできる |
+| `src/main/ipc.ts` | IPC の入力の確かめ（`requireString`・`requireStringArray`・`normalizeTitle`・`normalizeTag`・`requireHue`・`normalizeFromNoteOptions`）、ハンドラー、設定への案内の判定（`decideOnboarding`・`onboardingHandlers`）。外部のブラウザで開いてよい URL か（`isExternalUrl`）は `src/shared/links.ts` にあり、ここから export し直している。electron に依存しないので Node 上でテストできる |
 | `src/shared/aiService.ts` | 使っている AI の選択肢（`AI_SERVICES`）と画面に出す名前。「はじめに」の起動のしかたの書き分けだけに使う |
 | `src/main/settings.ts` | `tasks/` の場所や一覧の並び順・自分の名前・最後に案内を済ませた版（`lastVersion`）・使っている AI（`aiService`）・画面ごとの編集画面の幅（`paneWidths`。値の確かめは `src/shared/paneWidth.ts`）などの個人設定（userData に保存。開発中は `%APPDATA%\mokkan-dev`） |
 | `src/main/index.ts` | ウィンドウと IPC の登録。画面は sandbox で動かし、ページの移動（`will-navigate`。今のページの読み込み直しは通す）と権限の要求（カメラ・通知など）は断る |
@@ -60,14 +60,14 @@
 | `src/renderer/src/components/` | 一覧・絞り込み・警告・編集画面・プロパティフォーム・カレンダー・ガント・時間割（`TimetableView`。議事メモを作る窓 `MeetingNoteDialog` も）・凡例（`Legend`）・タグと担当者の入力（`TagInput`）・タグの色の選択（`TagColorPicker`）・繰り返しの指定（`RepeatInput`）・本文のツールバー（`EditorToolbar`）・`[[` の候補（`LinkSuggestList`）・検索欄（`SearchBox`）・設定とルールのファイル（`SettingsDialog`）・まとめてアーカイブ（`ArchiveDialog`）・ノートの一覧（`NoteList`）・ノートのフォルダの木と種類の絞り込み（`NoteFolderTree`）・新規作成のボタンとテンプレートの選択（`NewButton`）・ノートのプロパティと「＋ ここからチケット」「AI に頼む文をコピー」（`NoteProperties`）・ノートの点検の結果（`NoteLintPanel`）・編集画面の「このノートへのリンク」（`Backlinks`）・入口のノートの「このプロジェクトのチケット」（`ProjectTickets`。対象は `projectOpenTickets`）・一覧と編集画面の境目（`PaneSplitter`）・ヘルプ（`HelpDialog`）。編集画面（`TicketEditor`）はチケットとノートの両方を開く |
 | `src/renderer/src/tagStyle.ts` | タグの色を画面に付ける（色相を `--tag-h` で渡す）・タグの色を保存する |
 | `src/renderer/src/editor/markdown.ts` | Milkdown の組み立てと書き出し設定（`STRINGIFY_OPTIONS`）。往復テストは同じ場所の `markdown.test.ts`（jsdom） |
-| `src/renderer/src/editor/idLinks.ts` | 本文の中の ID と、他のチケット・ノートへの md のリンク（リンク先の ID で探す）に印とタイトルを付け、Ctrl+クリックで開く ProseMirror のプラグイン（画面の飾りだけで、本文は変えない）。テストは `idLinks.test.ts`（jsdom） |
+| `src/renderer/src/editor/idLinks.ts` | 本文の中の ID と、他のチケット・ノートへの md のリンク（リンク先の ID で探す）に印とタイトルを付け、Ctrl+クリック（Mac は ⌘+クリック）で開く ProseMirror のプラグイン（画面の飾りだけで、本文は変えない）。http/https のリンクも同じ操作で `window.open` に渡し、裏方が既定のブラウザで開く（編集できる場所のリンクは、Chromium がクリックしても開かないため）。テストは `idLinks.test.ts`（jsdom） |
 | `src/renderer/src/editor/linkSuggest.ts` | 本文で `[[`（`「「`）と打つとリンクの候補を出し、選ぶと `[タイトル](相対パス)` を入れる ProseMirror のプラグイン。候補の絞り込みと相対パスは `src/shared/links.ts`。テストは `linkSuggest.test.ts`（jsdom） |
 | `src/renderer/src/editor/tableCursor.ts` | 本文の表で、カーソルのあるセルと行・列に印を付ける ProseMirror のプラグイン（画面の飾りだけ）。テストは `tableCursor.test.ts`（jsdom） |
 | `src/renderer/src/editor/findText.ts` | 検索の結果から開いたときに、本文で当たった箇所を選んで見えるところまで動かす。テストは `findText.test.ts`（jsdom） |
 | `src/renderer/src/editor/toolbar.ts` | 本文エディタのツールバーの操作（見出し・太字・斜体・取り消し線・コード・リスト・チェックボックス・字下げ・引用・コードブロック・区切り線・リンク・表の挿入と行・列の追加と削除・元に戻す／やり直す）。テストは `toolbar.test.ts`（jsdom） |
 | `tests/` | テンプレートの文字コード・改行のテストと、往復テスト用のサンプル（`tests/fixtures/canonical.md`） |
 | `scripts/make-sandbox.mjs` | 動作確認用のサンプルデータを作る（`npm run sandbox`） |
-| `scripts/make-icons.mjs` | アイコンの原本 `build/icon.svg` から ico・png を作る（`npm run icons`） |
+| `scripts/make-icons.mjs` | アイコンの原本 `build/icon.svg` から ico・png・icns を作る（`npm run icons`） |
 | `scripts/run-skill-evals.mjs` | 標準の skill の評価（`tests/skill-evals/`）を、作り直した見本で `claude -p` を呼んで動かし、期待する skill が呼ばれたかを採点して、ほかは別の Claude に判定させる（`npm run skill-evals`）。`followUp` のある場面は同じ会話の2回目で書かせ、書いたファイルも判定する |
 | `scripts/take-screenshots.mjs` | README と `docs/guide.md` のスクリーンショット（`docs/images/`）を、見本のデータ（`sandbox/screenshots`）で起動した開発版から CDP で撮る（`npm run screenshots`。手順はファイルの先頭）。見本のフォルダでなければ止め、フォルダの場所と自分の名前は見本のものに置き換えてから撮る |
 | `docs/guide.md` | 使い方（画面ごとにできること）。見出しはヘルプのタブの名前と同じにする（ヘルプからその節を開く。`help.test.ts` で確かめる）。画面を変えたら、ここも直す |
@@ -162,7 +162,9 @@
 | `npm run typecheck` / `npm run lint` | 変更したら両方通す |
 | `npm run format` | Prettier。mdは「編集していない部分は変えない」ため `.prettierignore` で対象外にしている |
 | `npm run build:win` | Windows 用のインストーラー（NSIS のワンクリック形式、ユーザーごとに入れる）を `dist/` に作る |
-| `npm run icons` | `build/icon.svg` から `build/icon.ico`・`build/icon.png`・`resources/icon.png` を作る（Electron で描く。追加のパッケージなし） |
+| `npm run build:mac` | Mac 用のアプリを Apple シリコン用と Intel 用に作り、ad-hoc 署名をして zip にする（`scripts/package-mac.sh`。Mac の上でだけ動く） |
+| `npm run build:linux` | Linux 用の deb（x64）を `dist/` に作る（Linux の上でだけ動く。Windows では WSL2 の中で実行する） |
+| `npm run icons` | `build/icon.svg` から `build/icon.ico`・`build/icon.png`・`build/icon.icns`・`resources/icon.png` を作る（Electron で描く。追加のパッケージなし） |
 | `npm run skill-evals` | 標準の skill の評価を Haiku・Sonnet・Opus で動かす（`--models`・`--skills`・`--concurrency` で絞れる。パソコンの Claude Code を呼ぶ。CI では動かさない） |
 
 - 別のデータフォルダを使うときは、環境変数 `MOKKAN_TASKS_DIR` で指定するか、画面の「フォルダを変える」で選ぶ（環境変数が最優先）。
@@ -174,14 +176,31 @@
 - **`dependencies` には、裏方（`src/main`）が実行時に require するものだけを置く**（今は `@electron-toolkit/utils`・`chokidar`・`yaml`）。画面や preload で使うパッケージは Vite が出力にまとめるので `devDependencies` に入れる。`dependencies` に入れると、インストーラーに `node_modules` として二重に入る。
 - 起動は1つだけ（`requestSingleInstanceLock`）。2つ目は、開いているウィンドウを前に出して終わる。ロックは userData ごとなので、開発版とインストール版は同時に動かせる。
 - リリース：`package.json` の `version` を上げて main にマージし、`v<version>` のタグを main のコミットに付けて push すると、`.github/workflows/release.yml` がインストーラーを GitHub Release に置く（main 以外のコミットや、version と違うタグでは止まる）。自動更新（electron-updater）とコード署名はまだ使っていない。
-- `release.yml` はジョブを2つに分けている。`build`（Windows）は読み取りの権限だけで、依存パッケージを入れてテストとビルドをし、インストーラーを成果物として渡す。`release`（Ubuntu）だけが書き込みの権限を持ち、依存パッケージを入れずに、ハッシュ値（`SHA256SUMS.txt`）を作って Release を作る。依存パッケージに悪いコードが入っても、Release を書き換えるトークンに届かないようにするため。
+- `release.yml` はジョブを4つに分けている。`build`（Windows）・`build-mac`（Mac）・`build-linux`（Linux）は読み取りの権限だけで、依存パッケージを入れてテストとビルドをし、インストーラー・zip・deb を成果物として渡す。`release`（Ubuntu）だけが書き込みの権限を持ち、依存パッケージを入れずに、ハッシュ値（`SHA256SUMS.txt`）を作って Release を作る。依存パッケージに悪いコードが入っても、Release を書き換えるトークンに届かないようにするため。
 - `electron-builder.yml` の `electronFuses` で、配布するアプリで使わない機能を切っている（`ELECTRON_RUN_AS_NODE`・`NODE_OPTIONS`・`--inspect` を無効にし、コードは app.asar からだけ読んで改ざんを確かめる）。子プロセスに `process.fork` は使えないので、Node のプロセスが要るときは `utilityProcess` を使う。`grantFileProtocolExtraPrivileges` は、画面を `file://` から ES モジュールで読んでいるので切らない。
 - インストール版の動作確認は、`dist/win-unpacked/mokkan.exe --remote-debugging-port=<空いているポート> --user-data-dir=<別のフォルダ>` で起動すれば、Chrome DevTools Protocol（CDP）で画面を操作して確かめられる。`--user-data-dir` を付けないと、インストールした mokkan と同じ設定フォルダを使い、それが動いていれば「起動は1つだけ」の仕組みで終わってしまう（環境変数の `APPDATA` では設定フォルダは変わらない）。
+
+### Mac
+
+- Mac 用は `electron-builder --mac --dir` でアプリだけを作り、`scripts/package-mac.sh` が ad-hoc 署名（`codesign --sign -`）をし直して zip にする。electron-builder は証明書がないと署名を飛ばすが、Fuses を書き込むと Electron の本体の署名が壊れ、Apple シリコンでは起動できなくなるため。署名の識別子（`com.kanjiyamamoto66.mokkan`）を確かめ、CI では起動して 15 秒落ちないかも確かめる（`MOKKAN_SMOKE_TEST=1`）。
+- アイコンの `build/icon.icns` は `npm run icons` が作る（PNG をそのまま入れた形）。
+- アプリのメニューは、Mac だけ「アプリ・ファイル（閉じる ⌘W）・編集・表示（フルスクリーンだけ）・ウィンドウ」にする（ないとコピー・貼り付けのショートカットが効かない。既定のメニューの再読み込みと開発者ツールは出さない。Mac の windowMenu には「閉じる」が入らないので fileMenu を足す）。ウィンドウを閉じても終わらず、Dock から開き直せる。
+- キーの表示は `src/renderer/src/keys.ts`（Windows は `Ctrl+N`、Mac は `⌘N`）。「← 戻る」は Mac では ⌘[（⌥← は文字の移動なので使わない）。
+- アプリのキー（新規・検索・本文のリンクのクリック）は `isModKey` で受け取る。Mac では ⌘ だけを見て、⌃ は受け取らない（⌃N・⌃K は文字の移動と削除、⌃+クリックは右クリックのため）。- Mac はファイル名の濁点などを分けた形（NFD）で返すことがあるので、リンク先のパスを比べるときは NFC に揃える（`lintFiles`）。
+
+### Linux
+
+- 配るのは deb（x64）だけ。AppImage は Ubuntu 24.04 以降の AppArmor の制限で sandbox が動かないことがあるので作らない（理由は仕様書の「配り方」）。deb の postinst（electron-builder のもの）が、AppArmor が有効なら `/etc/apparmor.d/mokkan` を置き、user namespace が使えなければ chrome-sandbox を setuid にする。
+- `electron-builder.yml` の `deb.depends` は electron-builder の既定の依存に、音（`libasound2t64 | libasound2`）と描画（`libgbm1`）を足したもの（既定のままだと、最小構成の Ubuntu では `libasound.so.2` がなくて起動しない）。`deb.recommends` に日本語と絵文字のフォント（`fonts-noto-cjk`・`fonts-noto-color-emoji`）。`main.css` のフォントの並びにも `Noto Sans CJK JP` を入れている（中国語の字形が選ばれないように）。
+- Wayland でウィンドウとアイコンを結び付けるため、`package.json` の `desktopName`（`mokkan.desktop`）と `linux.syncDesktopName` を使う。
+- キーの表示と受け取りは Windows と同じ（Ctrl）。設定は `~/.config/mokkan`、削除したファイルは `~/.local/share/Trash` に移る。
+- CI と release.yml では、`npm run build:linux` の後に `scripts/smoke-linux.sh` が deb を入れ（sudo）、sandbox の用意を確かめ、xvfb で起動して 15 秒落ちないかを確かめる。
+- Windows で開発するときは、WSL2（WSLg で画面が出る）で確かめられる。リポジトリのファイルを WSL の中（`~/` の下）に写して `npm ci`・`npm run build:linux` をし、deb を `sudo apt install ./…deb` で入れ、`mokkan --remote-debugging-port=<ポート>` で起動すれば、WSL の中の Node から CDP で操作できる。Electron は root では sandbox なしでないと起動しないので、起動はふつうのユーザーで行う。
 
 ## PRとCI
 
 - 変更はブランチを切って PR にする。main に直接 push しない。
-- CI：PRとmainへのpushで、GitHub Actions（`.github/workflows/ci.yml`、windows-latest）が `npm ci` → typecheck → lint → test → `electron-vite build` を実行する。フォークからの PR でも動くよう、権限は読み取りだけで、Secret は使わない。
+- CI：PRとmainへのpushで、GitHub Actions（`.github/workflows/ci.yml`）が、windows-latest で `npm ci` → typecheck → lint → test → `electron-vite build` を、macos-latest で `npm ci` → test → `npm run build:mac`（起動の確認つき）を、ubuntu-latest で `npm ci` → test → `npm run build:linux` → `scripts/smoke-linux.sh`（deb を入れて起動の確認）を実行する。Mac 用の zip と Linux 用の deb は成果物（`mokkan-mac`・`mokkan-linux`、14日）として置くので、試す人はそこから取ってこられる。フォークからの PR でも動くよう、権限は読み取りだけで、Secret は使わない。
 - ワークフローのアクションはコミットの SHA で固定する（横にバージョンをコメントで書く）。更新は Dependabot（`.github/dependabot.yml`）が週に1回 PR にする。
 - PR を積み重ねる（前の PR のブランチを向き先にする）ときは注意する。GitHub が向き先を main に変えるのは、向き先のブランチが消されたときだけなので、続けてマージすると後ろの PR は feature のブランチに入り、main には入らない。1つマージしたらそのブランチを消してから次をマージするか、最後に main 向きの PR を1つ出す。
 
@@ -213,7 +232,9 @@
 
 ## 作業環境
 
-- アプリは Windows 専用です。パスの区切りや改行コード（ファイルはLFで保存）に注意してください。
+- 動作を保証するのは Windows と Linux（deb、x64）です。Mac は基本の動作だけを確かめています（Apple シリコン用と Intel 用）。パスの区切り（`path.join` を使い、`\` や `/` を決め打ちしない）や改行コード（ファイルはLFで保存）に注意してください。
+- Linux 版は WSL2 の Ubuntu で確かめる（上の「インストーラーとリリース」の「Linux」）。
+- Mac 版は、CI（macos-latest）のテスト・ビルド・起動の確認と、実機での確認で確かめる。
 - Node.js は `.node-version` の版を使います（fnm などで切り替える）。
 - 日本語入力（IME）の動作は自動テストでは確かめられないので、エディタ周りを変えたら実際に入力して確かめてください。
 - `npm run dev` で、使う側と import を別々の編集で続けて足すと、Vite が古い変換を返して「X is not defined」で画面が真っ白（真っ黒）になることがある。ファイルを保存し直してから再読み込みすると直る。

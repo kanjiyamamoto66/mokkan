@@ -41,6 +41,8 @@
     system-ui,
     -apple-system,
     'Hiragino Sans',
+    /* Linux：日本語の字形の Noto（system-ui に日本語がないとき、中国語の字形が選ばれないように） */
+    'Noto Sans CJK JP',
     sans-serif;
   font-size: 14px;
   line-height: 1.5;
@@ -125,7 +127,7 @@ kbd {
 }
 
 code {
-  font-family: Consolas, 'BIZ UDGothic', monospace;
+  font-family: Consolas, 'BIZ UDGothic', 'Noto Sans Mono CJK JP', monospace;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1107,7 +1109,7 @@ button.has-dot::after {
 }
 
 .editor-toolbar .tool.code {
-  font-family: Consolas, 'BIZ UDGothic', monospace;
+  font-family: Consolas, 'BIZ UDGothic', 'Noto Sans Mono CJK JP', monospace;
 }
 
 /* まとまりごとに並べ、狭い幅ではまとまりの単位で折り返す */
@@ -1245,7 +1247,7 @@ button.has-dot::after {
 }
 
 .body-editor .ProseMirror code {
-  font-family: Consolas, 'BIZ UDGothic', monospace;
+  font-family: Consolas, 'BIZ UDGothic', 'Noto Sans Mono CJK JP', monospace;
 }
 
 .body-editor .ProseMirror pre code {
@@ -2037,7 +2039,7 @@ body.pane-resizing {
 
 .properties .repeat-raw {
   width: 150px;
-  font-family: Consolas, 'BIZ UDGothic', monospace;
+  font-family: Consolas, 'BIZ UDGothic', 'Noto Sans Mono CJK JP', monospace;
   font-size: 12px;
 }
 
@@ -2846,6 +2848,90 @@ button.danger {
   text-overflow: ellipsis;
 }
 
+/*
+ * 25分より短い予定（15分の 12px など）は本当の高さの細い帯にし、内容だけを小さな文字で1行に出す
+ * （時刻は位置で分かり、乗せると出るカードに出る）
+ */
+.timetable-entry.thin {
+  padding-left: 4px;
+  padding-right: 4px;
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 10px;
+}
+
+.timetable-entry.thin .timetable-time {
+  display: none;
+}
+
+/*
+ * マウスを乗せた・キーボードで移った予定には、時刻と内容の全体とボタンを載せたカードを重ねる（予定の見た目を写す）。
+ * カードはマウスが素通りし（pointer-events: none）、押せるのはボタンだけ。予定の当たり判定は本当の高さのままなので、
+ * カードが下の予定に重なっても、下の予定に乗せる・押す・動かすことができる。
+ * ボタンはカードの1行目の右に回り込ませる（float）ので、文字を隠さず、予定の帯から離れずに押せる。
+ * 動かしている間と書き換えている間は出さない
+ */
+.timetable-card {
+  display: none;
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  right: -1px;
+  min-height: calc(100% + 2px);
+  padding: 2px 6px 6px;
+  border: inherit;
+  border-radius: 6px;
+  background: inherit;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.15);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 点線のいつもの予定は背景が透けるので、カードは塗る */
+.timetable-entry.preview .timetable-card {
+  background: var(--surface);
+}
+
+.timetable-entry:not(.dragging):not(.editing):hover > .timetable-card,
+.timetable-entry:not(.dragging):not(.editing):focus-within > .timetable-card {
+  display: block;
+}
+
+/* 時刻は途中で折らない（狭い列では、ボタンの下の行に回る） */
+.timetable-card-time {
+  display: inline-block;
+  margin-right: 6px;
+  white-space: nowrap;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.timetable-entry.done .timetable-card-time {
+  color: inherit;
+}
+
+/*
+ * 書き換えている短い予定は、入力欄が入るよう予定そのものを広げる（書き換えの間はほかの予定を押さないので、
+ * 当たり判定が広がってよい）。高さは画面の部品が style で決めているので !important で外す
+ */
+.timetable-entry.short.editing {
+  height: auto !important;
+  min-height: var(--entry-h);
+  flex-wrap: wrap;
+  padding: 2px 6px 6px;
+  white-space: normal;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.timetable-entry.thin.editing .timetable-time {
+  display: inline;
+}
+
 .timetable-entry.adding {
   z-index: 3;
   border-color: var(--accent);
@@ -2866,26 +2952,17 @@ button.danger {
   overflow-wrap: anywhere;
 }
 
+/* 予定のボタン（カードの中）。カードは素通りなので、ボタンだけ押せるようにする */
 .timetable-actions {
-  position: absolute;
-  top: 1px;
-  right: 2px;
-  display: none;
-  gap: 2px;
-  background: var(--surface);
-  border-radius: 4px;
-}
-
-.timetable-entry:hover .timetable-actions,
-.timetable-entry:focus-within .timetable-actions {
+  float: right;
   display: flex;
+  gap: 2px;
+  margin: 0 0 2px 6px;
+  white-space: nowrap;
+  pointer-events: auto;
 }
 
-.timetable-entry .timetable-actions[hidden] {
-  display: none;
-}
-
-/* 重なった予定は列が細いので、マウスを乗せた・キーボードで移った予定は前に出し、ボタンが切れないようにする */
+/* 重なった予定は列が細いので、マウスを乗せた・キーボードで移った予定は前に出し、カードが切れないようにする */
 .timetable-entry:hover,
 .timetable-entry:focus-within {
   z-index: 4;
@@ -2894,11 +2971,6 @@ button.danger {
 
 .timetable-entry:focus-visible {
   outline: 2px solid var(--selected-ring);
-}
-
-.timetable-actions {
-  white-space: nowrap;
-  box-shadow: 0 0 0 1px var(--border);
 }
 
 .timetable-candidates h3 {
@@ -2923,13 +2995,26 @@ button.danger {
   line-height: 1.6;
 }
 
+/*
+ * 長さを変えるつまみは、予定の本当の終わり（--entry-h）に置く。書き換えで予定を広げても、
+ * つまみは広がった下の端ではなく終わりの時刻のところに残る（--entry-h がないときは下の端）。
+ * 位置は枠の内側から数えるので、上の枠の 1px を引く。乗せたときのカードはつまみの上に重なるが、
+ * 素通りなので、つまみはそのまま掴める
+ */
 .timetable-resize {
   position: absolute;
   left: 0;
   right: 0;
+  top: calc(var(--entry-h) - 7px);
   bottom: 0;
   height: 6px;
   cursor: ns-resize;
+}
+
+/* 細い帯（12px）は、つまみを低くして、動かすために掴む範囲を残す */
+.timetable-entry.thin .timetable-resize {
+  top: calc(var(--entry-h) - 5px);
+  height: 4px;
 }
 
 .timetable-edit {

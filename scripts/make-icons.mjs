@@ -1,4 +1,4 @@
-// build/icon.svg から、アプリのアイコン（build/icon.png・build/icon.ico・resources/icon.png）を作る。
+// build/icon.svg から、アプリのアイコン（build/icon.png・build/icon.ico・build/icon.icns・resources/icon.png）を作る。
 // 実行：npm run icons（Electron の画面で SVG をサイズごとに描いて PNG にする。追加のパッケージは使わない）
 
 import { app, BrowserWindow } from 'electron'
@@ -12,12 +12,27 @@ const svg = readFileSync(join(root, 'build', 'icon.svg'), 'utf8')
 // ico に入れる大きさ。小さい大きさも縮小ではなく SVG から描き直すので、線がにじみにくい
 const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256]
 const PNG_SIZE = 512
+// icns（Mac）に入れる大きさと、その種類の名前（@2x は Retina 用。PNG をそのまま入れる）
+const ICNS_TYPES = [
+  ['icp4', 16],
+  ['icp5', 32],
+  ['ic11', 32],
+  ['ic12', 64],
+  ['ic07', 128],
+  ['ic13', 256],
+  ['ic08', 256],
+  ['ic14', 512],
+  ['ic09', 512],
+  ['ic10', 1024]
+]
+/** 描く大きさの最大（icns の 1024） */
+const CANVAS_SIZE = 1024
 
-/** SVG を描くための、見えないウィンドウ（一番大きい PNG_SIZE に合わせる） */
+/** SVG を描くための、見えないウィンドウ（一番大きい CANVAS_SIZE に合わせる） */
 async function openCanvas() {
   const win = new BrowserWindow({
-    width: PNG_SIZE,
-    height: PNG_SIZE,
+    width: CANVAS_SIZE,
+    height: CANVAS_SIZE,
     show: false,
     useContentSize: true,
     transparent: true,
@@ -73,6 +88,20 @@ function toIco(pngs) {
   return Buffer.concat([header, ...entries, ...pngs.map((p) => p.data)])
 }
 
+/** PNG をそのまま入れた icns を作る（macOS 10.7 以降が読める形式） */
+function toIcns(entries) {
+  const chunks = entries.map(({ type, data }) => {
+    const head = Buffer.alloc(8)
+    head.write(type, 0, 'ascii')
+    head.writeUInt32BE(8 + data.length, 4)
+    return Buffer.concat([head, data])
+  })
+  const header = Buffer.alloc(8)
+  header.write('icns', 0, 'ascii')
+  header.writeUInt32BE(8 + chunks.reduce((n, c) => n + c.length, 0), 4)
+  return Buffer.concat([header, ...chunks])
+}
+
 app.disableHardwareAcceleration()
 // 拡大率が 100% でない画面でも、指定した大きさのまま描く
 app.commandLine.appendSwitch('force-device-scale-factor', '1')
@@ -85,9 +114,16 @@ app.whenReady().then(async () => {
     writeFileSync(join(root, 'resources', 'icon.png'), png)
     const pngs = []
     for (const size of ICO_SIZES) pngs.push({ size, data: await render(win, size) })
+    const rendered = new Map()
+    const icns = []
+    for (const [type, size] of ICNS_TYPES) {
+      if (!rendered.has(size)) rendered.set(size, await render(win, size))
+      icns.push({ type, data: rendered.get(size) })
+    }
     win.destroy()
     writeFileSync(join(root, 'build', 'icon.ico'), toIco(pngs))
-    console.log('build/icon.png・build/icon.ico・resources/icon.png を作りました')
+    writeFileSync(join(root, 'build', 'icon.icns'), toIcns(icns))
+    console.log('build/icon.png・build/icon.ico・build/icon.icns・resources/icon.png を作りました')
     app.exit(0)
   } catch (error) {
     console.error(error)

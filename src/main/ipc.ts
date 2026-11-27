@@ -224,15 +224,7 @@ export function requireHue(value: unknown): number | null {
   return value
 }
 
-/** 外部のブラウザで開いてよい URL か（http と https だけ。file: などは開かない） */
-export function isExternalUrl(url: string): boolean {
-  try {
-    const { protocol } = new URL(url)
-    return protocol === 'http:' || protocol === 'https:'
-  } catch {
-    return false
-  }
-}
+export { isExternalUrl } from '../shared/links'
 
 type TicketStore = Pick<
   TaskStore,
